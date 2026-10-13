@@ -3,12 +3,19 @@ import hashlib
 import logging
 import asyncio
 from fastapi.concurrency import run_in_threadpool
+from functools import lru_cache
+
+from config import get_settings
 from services.embeddings import generate_embedding
 
 logger = logging.getLogger(__name__)
 
-client = chromadb.PersistentClient(path="./chroma_db")
-collection = client.get_or_create_collection(name="market_research")
+
+@lru_cache
+def get_collection():
+    # Opened on first use so importing this module doesn't create a database on disk
+    client = chromadb.PersistentClient(path=get_settings().chroma_path)
+    return client.get_or_create_collection(name="market_research")
 
 async def store_documents(chunks: list[str], source_url: str):
     if not chunks:
@@ -38,7 +45,7 @@ async def store_documents(chunks: list[str], source_url: str):
     if ids:
         # Offload synchronous ChromaDB upsert to a threadpool
         await run_in_threadpool(
-            collection.upsert,
+            get_collection().upsert,
             ids=ids,
             embeddings=valid_embeddings,
             metadatas=metadatas,
@@ -52,7 +59,7 @@ async def retrieve_context(query: str, top_k: int = 5) -> list[dict]:
         
         # Offload synchronous ChromaDB query to a threadpool
         results = await run_in_threadpool(
-            collection.query,
+            get_collection().query,
             query_embeddings=[query_embedding],
             n_results=top_k
         )

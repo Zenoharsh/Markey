@@ -4,7 +4,7 @@ import { SearchBar } from './components/SearchBar';
 import { Card } from './components/Card';
 import { CompetitorChart } from './components/CompetitorChart';
 import { SkeletonLoader } from './components/SkeletonLoader';
-import { fetchResearch } from './api/client';
+import { fetchResearch, getErrorMessage } from './api/client';
 import type { MarketResearchReport } from './types';
 
 function App() {
@@ -18,8 +18,8 @@ function App() {
     try {
       const data = await fetchResearch(query);
       setReport(data);
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during research. Please ensure the backend is running.');
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

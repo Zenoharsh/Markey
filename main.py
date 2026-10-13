@@ -5,6 +5,8 @@ from services.scraper import scrape_core_content
 from services.chunker import chunk_text
 from services.vector_db import store_documents, retrieve_context
 from services.generator import generate_research_report
+from services.llm import LLMError
+from config import get_settings
 import httpx
 from fastapi.concurrency import run_in_threadpool
 import uvicorn
@@ -27,7 +29,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],  # React Vite defaults
+    allow_origins=get_settings().cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,7 +51,6 @@ async def scrape_endpoint(request: ScrapeRequest):
         
         # Offload synchronous CPU-bound chunking to threadpool
         chunks = await run_in_threadpool(chunk_text, content)
-        print(f"Verified: Generated {len(chunks)} chunks from the scraped content.")
         logging.info(f"Generated {len(chunks)} chunks for {request.url}")
         
         # Store chunks in vector DB
@@ -82,12 +83,11 @@ async def research_endpoint(request: ResearchQuery):
                 whitespace_opportunities=[]
             )
             
-        report_data = await generate_research_report(request.query, context_chunks)
-        # Validate against the model
-        report = MarketResearchReport(**report_data)
-        return report
+        return await generate_research_report(request.query, context_chunks)
+    except LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Ollama LLM timed out generating the report.")
+        raise HTTPException(status_code=504, detail="The LLM timed out generating the report.")
     except Exception as e:
         import traceback
         logging.error(f"Error in research_endpoint: {str(e)}\n{traceback.format_exc()}")

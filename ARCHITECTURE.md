@@ -27,7 +27,7 @@ graph TD
 
     subgraph Generation [Generation Pipeline]
         H[Context Retrieval <br/> ChromaDB]
-        I[Generator Service <br/> Ollama / llama3]
+        I[Generator Service <br/> Ollama llama3.2 or Claude API]
         J[Structured Output <br/> Pydantic]
     end
 
@@ -58,7 +58,7 @@ graph TD
 ### 2. Research Generation (`/research`)
 1. **Context Retrieval**: Queries ChromaDB with the user's research query (converted to an embedding) and fetches the top 5 nearest chunks.
 2. **`services/generator.py`**: Injects the context chunks and the strict JSON Schema representation of the `ResearchReport` Pydantic Model into an engineered system prompt.
-3. **Strict JSON LLM Call**: Calls the local `llama3` model using Ollama's `format: "json"` to guarantee the generation flawlessly matches the Pydantic schema structure.
+3. **Structured LLM Call** (`services/llm.py`): The configured provider returns a validated `MarketResearchReport`. Ollama (`llama3.2` by default) uses `format: "json"` and gets one retry on malformed output; the Claude API uses structured outputs, with a server-side fallback model on safety declines. Unusable output becomes a 502 with a clear message instead of a fake report.
 
 ## Technical Stack & Packages
 
@@ -94,8 +94,8 @@ The system relies on Ollama running locally on its default port (`11434`). You m
 # Install the highly optimized embedding model
 ollama pull nomic-embed-text
 
-# Install the generation model (you can swap this for mistral/phi3)
-ollama pull llama3
+# Install the generation model (set OLLAMA_CHAT_MODEL to use another)
+ollama pull llama3.2
 
 # Ensure Ollama is running in the background (or another terminal)
 ollama serve

@@ -7,3 +7,5 @@ langchain-text-splitters
 tiktoken
 httpx
 chromadb
+anthropic>=1.13
+pydantic-settings>=2.3

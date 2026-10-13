@@ -31,8 +31,8 @@ export const SkeletonLoader: React.FC = () => {
 
       {/* Top Right: Chart */}
       <div className="neu-flat" style={{ minHeight: '340px', borderRadius: '16px', padding: '24px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around' }}>
-        {[1, 2, 3, 4, 5].map(i => (
-          <div key={i} className="neu-pressed" style={{ width: '15%', height: `${Math.random() * 50 + 30}%`, borderRadius: '8px 8px 0 0' }} />
+        {[55, 75, 40, 65, 50].map((height, i) => (
+          <div key={i} className="neu-pressed" style={{ width: '15%', height: `${height}%`, borderRadius: '8px 8px 0 0' }} />
         ))}
       </div>
 
