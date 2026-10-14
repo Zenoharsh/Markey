@@ -19,7 +19,7 @@ from pathlib import Path
 
 from fastapi.concurrency import run_in_threadpool
 
-from models.request_models import MarketResearchReport, ReportDraft
+from models.request_models import MarketResearchReport
 from services import research
 from services.vector_db import get_collection
 
@@ -61,16 +61,17 @@ def support_score(statement: str, source_text: str) -> float:
 
 def statements(report: MarketResearchReport) -> list[tuple[str, list[int]]]:
     items = [(report.executive_summary, report.executive_summary_source_ids)]
-    items += [(t.text, t.source_ids) for t in report.key_trends + report.whitespace_opportunities]
+    for section in (
+        report.key_trends, report.growth_drivers, report.challenges, report.customer_segments,
+        report.whitespace_opportunities, report.recommendations,
+    ):
+        items += [(t.text, t.source_ids) for t in section]
+    items += [(f.rationale, f.source_ids) for f in report.competitive_forces]
     items += [
-        (f"{c.name} {c.pricing_model} {c.core_value_proposition} {c.target_audience}", c.source_ids)
+        (f"{c.name} {c.core_value_proposition}", c.source_ids)
         for c in report.competitors
     ]
     return [(text, ids) for text, ids in items if ids]
-
-
-def drafted_count(draft: ReportDraft) -> int:
-    return 1 + len(draft.key_trends) + len(draft.whitespace_opportunities) + len(draft.competitors)
 
 
 async def source_texts(report: MarketResearchReport) -> dict[int, str]:
@@ -82,22 +83,11 @@ async def source_texts(report: MarketResearchReport) -> dict[int, str]:
 
 
 async def score_topic(topic: str) -> dict:
-    drafts: list[ReportDraft] = []
-    apply_citations = research.apply_citations
-
-    def recording_apply_citations(draft, sources):
-        # Keep the model's draft so we can count the statements the citation check dropped
-        drafts.append(draft)
-        return apply_citations(draft, sources)
-
-    research.apply_citations = recording_apply_citations
     started = time.perf_counter()
     try:
         report = await research.run_research(topic)
     except Exception as e:
         return {"topic": topic, "error": f"{type(e).__name__}: {e}", "seconds": round(time.perf_counter() - started, 1)}
-    finally:
-        research.apply_citations = apply_citations
 
     texts = await source_texts(report)
     scored = [
@@ -105,13 +95,14 @@ async def score_topic(topic: str) -> dict:
         for text, ids in statements(report)
     ]
     supports = [s["support"] for s in scored]
-    drafted = drafted_count(drafts[0]) if drafts else len(scored)
     return {
         "topic": topic,
         "seconds": round(time.perf_counter() - started, 1),
         "sources": len(report.sources),
         "statements": len(scored),
-        "dropped": max(0, drafted - len(scored)),
+        "dropped": report.removed_statements,
+        "dropped_figures": report.removed_figures,
+        "figures": len(report.key_figures),
         "mean_support": round(sum(supports) / len(supports), 2) if supports else 0.0,
         "supported_share": round(sum(s >= SUPPORT_THRESHOLD for s in supports) / len(supports), 2) if supports else 0.0,
         "weakest": sorted(scored, key=lambda s: s["support"])[:3],
@@ -124,16 +115,16 @@ def to_markdown(results: list[dict], started_at: str) -> str:
         "",
         f"Supported means at least {SUPPORT_THRESHOLD:.0%} of a statement's content words appear in its cited sources.",
         "",
-        "| Topic | Sources | Statements | Dropped | Mean support | Supported | Seconds |",
-        "|---|---|---|---|---|---|---|",
+        "| Topic | Sources | Statements | Dropped | Figures kept / dropped | Mean support | Supported | Seconds |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for r in results:
         if "error" in r:
-            lines.append(f"| {r['topic']} | failed: {r['error']} | | | | | {r['seconds']} |")
+            lines.append(f"| {r['topic']} | failed: {r['error']} | | | | | | {r['seconds']} |")
         else:
             lines.append(
                 f"| {r['topic']} | {r['sources']} | {r['statements']} | {r['dropped']} | "
-                f"{r['mean_support']:.2f} | {r['supported_share']:.0%} | {r['seconds']} |"
+                f"{r.get('figures', 0)} / {r.get('dropped_figures', 0)} | {r['mean_support']:.2f} | {r['supported_share']:.0%} | {r['seconds']} |"
             )
     ok = [r for r in results if "error" not in r]
     if ok:

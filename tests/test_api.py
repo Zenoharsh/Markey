@@ -21,9 +21,16 @@ REPORT = MarketResearchReport(
     industry_name="Micromobility",
     executive_summary="Growing.",
     executive_summary_source_ids=[1],
+    key_figures=[],
     key_trends=[],
+    growth_drivers=[],
+    challenges=[],
+    customer_segments=[],
     competitors=[],
+    competitive_forces=[],
     whitespace_opportunities=[],
+    recommendations=[],
+    data_gaps=[],
     sources=[{"id": 1, "url": "https://a.example", "title": "A", "retrieved_at": ""}],
 )
 

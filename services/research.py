@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timezone
@@ -7,7 +8,7 @@ from datetime import date, datetime, timezone
 from fastapi.concurrency import run_in_threadpool
 
 from config import get_settings
-from models.request_models import CitedText, MarketResearchReport, ReportDraft, Source
+from models.request_models import CitedText, KeyFigure, MarketResearchReport, ReportDraft, Source
 from services.chunker import chunk_text
 from services.generator import generate_research_report
 from services.scraper import scrape_core_content
@@ -21,7 +22,6 @@ ProgressCallback = Callable[[str, str], Awaitable[None]]
 
 # Pages whose search result already carries at least this much text aren't scraped again
 MIN_CONTENT_CHARS = 500
-CONTEXT_CHUNKS = 12
 
 
 class InsufficientEvidence(Exception):
@@ -37,10 +37,42 @@ def plan_queries(topic: str) -> list[str]:
     year = date.today().year
     return [
         topic,
-        f"{topic} market size and growth",
-        f"{topic} competitors and pricing",
+        f"{topic} market size and growth forecast CAGR",
+        f"{topic} competitors market share and pricing",
         f"{topic} industry trends {year}",
+        f"{topic} customer segments and demand drivers",
+        f"{topic} challenges risks and regulation",
     ]
+
+
+def evidence_queries(topic: str) -> list[str]:
+    """One retrieval per report theme, so passages on every section reach the model, not only the most generic."""
+    return [
+        topic,
+        f"{topic} market size revenue growth rate forecast",
+        f"{topic} companies competitors market share pricing",
+        f"{topic} customers demand drivers trends",
+        f"{topic} challenges barriers regulation risks",
+    ]
+
+
+async def gather_evidence(topic: str, urls: list[str] | None) -> list[dict]:
+    """Retrieves passages for each theme and merges them without duplicates, up to the configured budget."""
+    budget = get_settings().context_chunks
+    queries = evidence_queries(topic)
+    per_query = max(2, -(-budget // len(queries)))
+    batches = await asyncio.gather(*(retrieve_context(q, top_k=per_query, urls=urls) for q in queries))
+    chunks, seen = [], set()
+    # Round-robin so each theme keeps its best passages if the budget cuts the list
+    for rank in range(per_query):
+        for batch in batches:
+            if rank >= len(batch):
+                continue
+            key = (batch[rank].get("metadata", {}).get("url"), batch[rank]["text"])
+            if key not in seen:
+                seen.add(key)
+                chunks.append(batch[rank])
+    return chunks[:budget]
 
 
 async def discover_sources(topic: str) -> list[SearchResult]:
@@ -135,12 +167,38 @@ def _sources_from_chunks(chunks: list[dict]) -> list[Source]:
     return sources
 
 
-def apply_citations(draft: ReportDraft, sources: list[Source]) -> MarketResearchReport:
-    """Keeps only citations that point at real sources and drops statements left without any."""
+def _number_forms(value: float) -> set[str]:
+    forms = set()
+    if value == int(value):
+        forms |= {str(int(value)), f"{int(value):,}"}
+    for decimals in (1, 2, 3):
+        for text in (f"{value:.{decimals}f}", f"{value:,.{decimals}f}"):
+            forms.add(text)
+            if "." in text:
+                forms.add(text.rstrip("0").rstrip("."))
+    return forms
+
+
+def number_stated(value: float, text: str) -> bool:
+    """True when the number appears in the text as written, e.g. 12.5 in "grew 12.5% a year" (but not in "112.5")."""
+    return any(
+        re.search(rf"(?<![\d.,]){re.escape(form)}(?![\d]|[.,]\d)", text) for form in _number_forms(value)
+    )
+
+
+def apply_citations(draft: ReportDraft, sources: list[Source], evidence: dict[int, str] | None = None) -> MarketResearchReport:
+    """
+    Keeps only citations that point at real sources and drops statements left without any.
+    With `evidence` (the passage text the model saw, by source id), numbers must also appear in a cited passage.
+    """
     valid = {s.id for s in sources}
+    removed = {"statements": 0, "figures": 0}
 
     def keep(ids: list[int]) -> list[int]:
         return sorted({i for i in ids if i in valid})
+
+    def verified(value: float, ids: list[int]) -> bool:
+        return evidence is None or any(number_stated(value, evidence.get(i, "")) for i in ids)
 
     def cited(items: list[CitedText]) -> list[CitedText]:
         out = []
@@ -149,25 +207,57 @@ def apply_citations(draft: ReportDraft, sources: list[Source]) -> MarketResearch
             if ids:
                 out.append(CitedText(text=item.text, source_ids=ids))
             else:
+                removed["statements"] += 1
                 logger.info(f"Dropped unsupported statement: {item.text[:80]!r}")
         return out
+
+    figures: list[KeyFigure] = []
+    for figure in draft.key_figures:
+        ids = keep(figure.source_ids)
+        if ids and verified(figure.value, ids):
+            figures.append(figure.model_copy(update={"source_ids": ids}))
+        else:
+            removed["figures"] += 1
+            logger.info(f"Dropped unverified figure: {figure.label} = {figure.value} {figure.unit}")
 
     competitors = []
     for c in draft.competitors:
         ids = keep(c.source_ids)
-        if ids:
-            competitors.append(c.model_copy(update={"source_ids": ids}))
-        else:
+        if not ids:
+            removed["statements"] += 1
             logger.info(f"Dropped unsupported competitor: {c.name!r}")
+            continue
+        update: dict = {"source_ids": ids}
+        if c.market_share_percent is not None and not verified(c.market_share_percent, ids):
+            removed["figures"] += 1
+            update["market_share_percent"] = None
+        competitors.append(c.model_copy(update=update))
+
+    forces = []
+    for force in draft.competitive_forces:
+        ids = keep(force.source_ids)
+        if ids:
+            forces.append(force.model_copy(update={"source_ids": ids}))
+        else:
+            removed["statements"] += 1
 
     return MarketResearchReport(
         industry_name=draft.industry_name,
         executive_summary=draft.executive_summary,
         executive_summary_source_ids=keep(draft.executive_summary_source_ids),
+        key_figures=figures,
         key_trends=cited(draft.key_trends),
+        growth_drivers=cited(draft.growth_drivers),
+        challenges=cited(draft.challenges),
+        customer_segments=cited(draft.customer_segments),
         competitors=competitors,
+        competitive_forces=forces,
         whitespace_opportunities=cited(draft.whitespace_opportunities),
+        recommendations=cited(draft.recommendations),
+        data_gaps=[gap for gap in draft.data_gaps if gap.strip()],
         sources=sources,
+        removed_statements=removed["statements"],
+        removed_figures=removed["figures"],
     )
 
 
@@ -183,13 +273,13 @@ async def run_research(topic: str, progress: ProgressCallback | None = None) -> 
         sources = await collect_sources(topic, progress)
         logger.info(f"Collected {len(sources)} sources in {time.perf_counter() - started:.1f}s")
         await progress("analyzing", f"Picking the most relevant passages from {len(sources)} sources")
-        chunks = await retrieve_context(topic, top_k=CONTEXT_CHUNKS, urls=[s.url for s in sources])
+        chunks = await gather_evidence(topic, [s.url for s in sources])
         if not chunks:
             raise InsufficientEvidence(
                 "The sources were found but could not be searched. Check that the embedding service (Ollama) is running."
             )
     else:
-        chunks = await retrieve_context(topic, top_k=CONTEXT_CHUNKS)
+        chunks = await gather_evidence(topic, None)
         if not chunks:
             raise InsufficientEvidence(
                 "No stored sources match this topic. Set TAVILY_API_KEY or BRAVE_API_KEY to research from the web."
@@ -203,4 +293,10 @@ async def run_research(topic: str, progress: ProgressCallback | None = None) -> 
         f"Wrote the report in {time.perf_counter() - writing_started:.1f}s "
         f"({time.perf_counter() - started:.1f}s total)"
     )
-    return apply_citations(draft, sources)
+    ids_by_url = {s.url: s.id for s in sources}
+    evidence: dict[int, str] = {}
+    for chunk in chunks:
+        source_id = ids_by_url.get(chunk.get("metadata", {}).get("url"))
+        if source_id is not None:
+            evidence[source_id] = evidence.get(source_id, "") + "\n" + chunk["text"]
+    return apply_citations(draft, sources, evidence)

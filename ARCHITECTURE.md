@@ -61,6 +61,12 @@ graph TD
 
 Without a search API key, steps 1 to 4 are skipped and reports use pages stored earlier with `/scrape`.
 
+## What a report contains
+
+`ReportDraft` (models/request_models.py) follows a consultancy brief: executive summary, key figures (market size, forecasts, growth rates, shares), trends, growth drivers, challenges, customer segments, competitors, Porter's five forces, whitespace opportunities, recommendations and data gaps. Retrieval pulls passages for each theme separately (`gather_evidence`), so every section has evidence.
+
+`apply_citations` drops any item without a valid source, and drops any number (key figure or market share) that doesn't appear in the text of a passage it cites. The report counts what was removed and shows it in its method note.
+
 ## Jobs and saved reports
 
 Every run is a background job (`services/jobs.py`) saved in SQLite (`services/store.py`, `DATABASE_PATH`, default `./markey.db`).

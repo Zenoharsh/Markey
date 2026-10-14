@@ -13,18 +13,28 @@ VALID_REPORT = {
     "industry_name": "Note-taking apps",
     "executive_summary": "A crowded market.",
     "executive_summary_source_ids": [1],
+    "key_figures": [
+        {"label": "Market size", "value": 7.2, "unit": "USD billion", "year": 2025, "kind": "market_size", "source_ids": [1]}
+    ],
     "key_trends": [{"text": "AI summaries", "source_ids": [1]}],
+    "growth_drivers": [],
+    "challenges": [],
+    "customer_segments": [],
     "competitors": [
         {
             "name": "Acme Notes",
             "pricing_model": "Freemium",
             "core_value_proposition": "Fast capture",
             "target_audience": "Students",
-            "market_strength_score": 6,
+            "scale": None,
+            "market_share_percent": None,
             "source_ids": [1],
         }
     ],
+    "competitive_forces": [],
     "whitespace_opportunities": [{"text": "Offline-first teams", "source_ids": [2]}],
+    "recommendations": [],
+    "data_gaps": [],
 }
 
 

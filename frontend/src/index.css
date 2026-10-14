@@ -542,8 +542,274 @@ button {
   gap: 16px;
 }
 
-.span-2 {
+.span-all {
   grid-column: 1 / -1;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.panel,
+.grid-3 {
+  scroll-margin-top: 68px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.section-nav {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: -8px 0 20px;
+}
+
+.sub-heading {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+}
+
+.not-stated {
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Key figures: stat tiles, then market size by year */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.figure {
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--fill);
+  min-width: 0;
+}
+
+.figure-kind {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.figure-value {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 4px 0 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.figure-unit {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text-secondary);
+}
+
+.figure-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.size-chart {
+  margin-top: 24px;
+}
+
+.size-chart figcaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.size-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--series-1);
+}
+
+.swatch-forecast,
+.column-bar.column-forecast {
+  background: repeating-linear-gradient(45deg, var(--series-1) 0 2px, transparent 2px 5px);
+  box-shadow: inset 0 0 0 1.5px var(--series-1);
+}
+
+.columns {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  height: 200px;
+  border-bottom: 1px solid var(--hairline);
+  padding-top: 24px;
+}
+
+.column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  outline-offset: 4px;
+}
+
+.column-plot {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.column-bar {
+  width: 24px;
+  border-radius: 4px 4px 0 0;
+  background: var(--series-1);
+  transition: filter 0.15s ease;
+}
+
+.column:hover .column-bar,
+.column:focus-visible .column-bar {
+  filter: brightness(1.15);
+}
+
+.column-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+
+.column-label {
+  position: relative;
+  top: 26px;
+  margin-top: -18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.column-tooltip {
+  left: 50%;
+  bottom: calc(100% + 4px);
+  min-width: 160px;
+}
+
+/* Porter's five forces */
+.forces {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.force {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--fill);
+}
+
+.force-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.force-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.force-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.force-word {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--text-secondary);
+  min-width: 46px;
+}
+
+.meter {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.meter i {
+  width: 14px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+}
+
+.meter i.on {
+  background: var(--series-1);
+}
+
+.force p {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.gaps {
+  padding-left: 18px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.method {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
 }
 
 .panel {
@@ -639,40 +905,29 @@ button {
 }
 
 .cite-card {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  z-index: 30;
+  position: fixed;
+  z-index: 100;
   width: max-content;
-  max-width: 280px;
-  transform: translate(-50%, 4px);
+  max-width: 300px;
   padding: 10px 12px;
   border-radius: 12px;
   background: var(--popover);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow);
   font-size: 12px;
+  font-weight: 500;
   line-height: 1.4;
+  white-space: normal;
+  letter-spacing: normal;
   color: var(--text-primary);
-  opacity: 0;
-  visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .cite-card span {
   display: block;
+  font-weight: 400;
   color: var(--text-muted);
   margin-top: 2px;
-}
-
-.cite:hover .cite-card,
-.cite:focus-within .cite-card {
-  opacity: 1;
-  visibility: visible;
-  transform: translate(-50%, 0);
 }
 
 /* Strength chart: one series, so one hue, no legend; value labels at the bar tips */
@@ -999,9 +1254,24 @@ td.num {
   }
 }
 
+@media (max-width: 960px) {
+  .grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 760px) {
   .report-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .figure-value {
+    font-size: 26px;
+  }
+
+  /* Every other axis label, so they don't run together on a phone */
+  .chart-ticks span:nth-child(2n) {
+    visibility: hidden;
   }
 
   .panel {
@@ -1057,4 +1327,56 @@ td.num {
 
 :root[data-theme='dark'] .theme-dark-icon {
   display: none;
+}
+
+/* Export PDF: plain pages without the glass, controls or background */
+@media print {
+  :root,
+  :root[data-theme] {
+    color-scheme: light;
+    --text-primary: #1d1d1f;
+    --text-secondary: #424245;
+    --text-muted: #6e6e73;
+    --hairline: rgba(0, 0, 0, 0.12);
+    --fill: rgba(0, 0, 0, 0.04);
+    --series-1: #0071e3;
+    --accent-text: #0066cc;
+  }
+
+  body,
+  .backdrop {
+    background: #fff !important;
+  }
+
+  .topbar,
+  .section-nav,
+  .header-actions,
+  .tooltip,
+  .cite-card {
+    display: none !important;
+  }
+
+  .main {
+    max-width: none;
+    padding: 0;
+  }
+
+  .glass {
+    background: #fff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+  }
+
+  .panel,
+  .figure,
+  .force,
+  tr {
+    break-inside: avoid;
+  }
+
+  .table-wrap {
+    overflow: visible;
+  }
 }

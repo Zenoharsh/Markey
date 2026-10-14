@@ -33,7 +33,9 @@ class Settings(BaseSettings):
     # Tavily is tried first, Brave is the fallback. With neither, reports use only pages stored via /scrape.
     tavily_api_key: str | None = None
     brave_api_key: str | None = None
-    research_max_sources: int = 8
+    research_max_sources: int = 10
+    # Passages given to the model; each is about 500 tokens. Lower it for small local models
+    context_chunks: int = 20
     research_min_sources: int = 2
     search_timeout_seconds: float = 20.0
     # Long pages are cut to this many characters before chunking, which keeps local embedding fast

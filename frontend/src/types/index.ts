@@ -3,12 +3,31 @@ export interface CitedText {
   source_ids: number[];
 }
 
+export interface KeyFigure {
+  label: string;
+  value: number;
+  unit: string;
+  year: number | null;
+  kind: 'market_size' | 'forecast' | 'growth_rate' | 'market_share' | 'other';
+  source_ids: number[];
+}
+
 export interface CompetitorData {
   name: string;
-  pricing_model: string;
   core_value_proposition: string;
-  target_audience: string;
-  market_strength_score: number;
+  pricing_model: string | null;
+  target_audience: string | null;
+  scale: string | null;
+  market_share_percent: number | null;
+  source_ids: number[];
+}
+
+export type Intensity = 'low' | 'medium' | 'high';
+
+export interface ForceAssessment {
+  force: string;
+  intensity: Intensity;
+  rationale: string;
   source_ids: number[];
 }
 
@@ -23,10 +42,19 @@ export interface MarketResearchReport {
   industry_name: string;
   executive_summary: string;
   executive_summary_source_ids: number[];
+  key_figures: KeyFigure[];
   key_trends: CitedText[];
+  growth_drivers: CitedText[];
+  challenges: CitedText[];
+  customer_segments: CitedText[];
   competitors: CompetitorData[];
+  competitive_forces: ForceAssessment[];
   whitespace_opportunities: CitedText[];
+  recommendations: CitedText[];
+  data_gaps: string[];
   sources: Source[];
+  removed_statements: number;
+  removed_figures: number;
 }
 
 export type ResearchEvent =

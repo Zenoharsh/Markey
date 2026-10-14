@@ -16,6 +16,7 @@ import {
 } from './api/client';
 import type { MarketResearchReport, RunSummary } from './types';
 import { relativeTime } from './lib/format';
+import { normalizeReport } from './lib/report';
 
 type View =
   | { kind: 'home' }
@@ -75,7 +76,7 @@ function App() {
         }
         if (controller.signal.aborted) return;
         if (run.report) {
-          setView({ kind: 'report', id, report: run.report, createdAt: run.created_at, duration: run.duration_seconds });
+          setView({ kind: 'report', id, report: normalizeReport(run.report), createdAt: run.created_at, duration: run.duration_seconds });
         } else {
           setView({ kind: 'error', topic: run.topic, message: run.error ?? 'This report did not finish.' });
         }
