@@ -1,16 +1,19 @@
 import httpx
 import logging
 
+from config import get_settings
+
 logger = logging.getLogger(__name__)
 
 async def generate_embedding(text: str) -> list[float]:
     """
-    Connects to a local Ollama instance and uses the nomic-embed-text model
+    Connects to a local Ollama instance and uses the configured embedding model
     to generate embeddings for a given text chunk.
     """
-    url = "http://localhost:11434/api/embed"
+    settings = get_settings()
+    url = f"{settings.ollama_base_url}/api/embed"
     payload = {
-        "model": "nomic-embed-text",
+        "model": settings.ollama_embed_model,
         "input": text
     }
     
