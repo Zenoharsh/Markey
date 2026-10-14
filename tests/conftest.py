@@ -14,7 +14,7 @@ from services.search import get_search_provider  # noqa: E402
 @pytest.fixture(autouse=True)
 def isolated_settings(monkeypatch, tmp_path):
     """Each test gets default settings, a throwaway Chroma path and fresh cached singletons."""
-    for var in ("LLM_PROVIDER", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OLLAMA_BASE_URL", "TAVILY_API_KEY", "BRAVE_API_KEY"):
+    for var in ("LLM_PROVIDER", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "GEMINI_API_KEY", "GEMINI_MODEL", "OLLAMA_BASE_URL", "TAVILY_API_KEY", "BRAVE_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "markey.db"))

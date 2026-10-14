@@ -30,6 +30,14 @@ ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-sonnet-5-5   # or claude-haiku-5-5 for the cheaper tier
 ```
 
+Or with Gemini, which has a free tier (key from https://aistudio.google.com/apikey):
+
+```
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.5-flash
+```
+
 ### Frontend
 
 ```bash

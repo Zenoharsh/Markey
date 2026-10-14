@@ -126,3 +126,63 @@ async def test_anthropic_unusable_stop_reasons_raise(monkeypatch, stop_reason, m
     provider, _, _ = anthropic_provider(monkeypatch, "claude-sonnet-5-5", response)
     with pytest.raises(LLMError, match=message):
         await provider.generate_structured("prompt", MarketResearchReport)
+
+
+def mock_gemini(monkeypatch, status, body):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(status, json=body)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        llm.httpx, "AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw)
+    )
+    return calls
+
+
+def gemini_answer(text, finish="STOP"):
+    return {"candidates": [{"content": {"parts": [{"text": text}]}, "finishReason": finish}]}
+
+
+def gemini_provider(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    return get_llm_provider()
+
+
+async def test_gemini_returns_validated_report(monkeypatch):
+    calls = mock_gemini(monkeypatch, 200, gemini_answer(json.dumps(VALID_REPORT)))
+    report = await gemini_provider(monkeypatch).generate_structured("prompt", MarketResearchReport)
+
+    assert report.competitors[0].name == "Acme Notes"
+    request = calls[0]
+    assert request.url.path.endswith("/models/gemini-2.5-flash:generateContent")
+    assert request.headers["x-goog-api-key"] == "test-key"
+    schema = json.loads(request.content)["generationConfig"]["responseJsonSchema"]
+    # References are inlined, so nested objects are spelled out
+    assert "$defs" not in json.dumps(schema)
+    assert schema["properties"]["key_trends"]["items"]["properties"]["text"]["type"] == "string"
+
+
+def test_gemini_provider_requires_api_key(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    with pytest.raises(LLMError, match="GEMINI_API_KEY"):
+        get_llm_provider()
+
+
+@pytest.mark.parametrize(
+    "status, body, message",
+    [
+        (429, {"error": {"message": "quota"}}, "rate limit"),
+        (400, {"error": {"message": "API key not valid"}}, "API key not valid"),
+        (200, {"promptFeedback": {"blockReason": "SAFETY"}}, "declined"),
+        (200, gemini_answer("{}", finish="MAX_TOKENS"), "ran out of output tokens"),
+        (200, gemini_answer("not json"), "expected format"),
+    ],
+)
+async def test_gemini_failures_raise_llm_error(monkeypatch, status, body, message):
+    mock_gemini(monkeypatch, status, body)
+    with pytest.raises(LLMError, match=message):
+        await gemini_provider(monkeypatch).generate_structured("prompt", MarketResearchReport)

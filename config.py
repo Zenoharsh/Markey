@@ -12,8 +12,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # Which LLM writes the reports: a local Ollama model or the hosted Claude API
-    llm_provider: Literal["ollama", "anthropic"] = "ollama"
+    # Which LLM writes the reports: a local Ollama model, or the hosted Claude or Gemini API
+    llm_provider: Literal["ollama", "anthropic", "gemini"] = "ollama"
 
     # Ollama (local) - also used for embeddings regardless of llm_provider
     ollama_base_url: str = "http://localhost:11434"
@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Anthropic (hosted)
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-5-5"
+
+    # Google Gemini (hosted, has a free tier) - key from https://aistudio.google.com/apikey
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
 
     # Source discovery - set at least one key to research any topic from the live web.
     # Tavily is tried first, Brave is the fallback. With neither, reports use only pages stored via /scrape.
