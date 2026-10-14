@@ -30,6 +30,27 @@ export interface MarketResearchReport {
 }
 
 export type ResearchEvent =
+  | { type: 'job'; id: string }
   | { type: 'progress'; stage: string; message: string }
-  | { type: 'report'; report: MarketResearchReport }
+  | { type: 'report'; id: string; report: MarketResearchReport }
   | { type: 'error'; status: number; detail: string };
+
+export type RunStatus = 'running' | 'done' | 'failed';
+
+// One saved research run, as listed in history
+export interface RunSummary {
+  id: string;
+  topic: string;
+  status: RunStatus;
+  created_at: string;
+  finished_at: string | null;
+  duration_seconds: number | null;
+  industry_name: string | null;
+  source_count: number;
+  error: string | null;
+}
+
+export interface RunDetail extends RunSummary {
+  error_status: number | null;
+  report: MarketResearchReport | null;
+}

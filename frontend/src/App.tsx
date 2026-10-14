@@ -1,159 +1,258 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MotionConfig } from 'framer-motion';
+import { AlertCircle, History, Loader2, Moon, Sun } from 'lucide-react';
 import { SearchBar } from './components/SearchBar';
-import { Card } from './components/Card';
-import { CompetitorChart } from './components/CompetitorChart';
-import { SkeletonLoader } from './components/SkeletonLoader';
-import { Citations } from './components/Citations';
-import { SourcesList } from './components/SourcesList';
-import { streamResearch, getErrorMessage } from './api/client';
-import type { MarketResearchReport } from './types';
+import { ProgressSteps } from './components/ProgressSteps';
+import { ReportView } from './components/ReportView';
+import { HistoryDrawer } from './components/HistoryDrawer';
+import { StatusBadge } from './components/StatusBadge';
+import {
+  deleteReport,
+  followResearch,
+  getErrorMessage,
+  getReport,
+  listReports,
+  startResearch,
+} from './api/client';
+import type { MarketResearchReport, RunSummary } from './types';
+import { relativeTime } from './lib/format';
+
+type View =
+  | { kind: 'home' }
+  | { kind: 'loading' }
+  | { kind: 'running'; id: string; topic: string; stage: string | null; message: string | null; startedAt: number }
+  | { kind: 'report'; id: string; report: MarketResearchReport; createdAt: string; duration: number | null }
+  | { kind: 'error'; topic?: string; message: string };
+
+type Theme = 'light' | 'dark';
+
+// Each run has its own address (#/r/<id>), so reloading or sharing the tab reopens it
+const runIdFromHash = () => window.location.hash.match(/^#\/r\/([\w-]+)$/)?.[1] ?? null;
+const navigate = (runId: string | null) => {
+  window.location.hash = runId ? `#/r/${runId}` : '';
+};
+
+const readTheme = (): Theme | null => {
+  try {
+    const saved = localStorage.getItem('markey.theme');
+    return saved === 'light' || saved === 'dark' ? saved : null;
+  } catch {
+    return null;
+  }
+};
 
 function App() {
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState<MarketResearchReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<string | null>(null);
+  const [view, setView] = useState<View>({ kind: 'home' });
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme | null>(readTheme);
+  const following = useRef<AbortController | null>(null);
 
-  const handleSearch = async (query: string) => {
-    setLoading(true);
-    setError(null);
-    setProgress('Starting research');
+  const refreshHistory = useCallback(() => {
+    listReports().then(setRuns).catch(() => undefined);
+  }, []);
+
+  const openRun = useCallback(
+    async (id: string) => {
+      following.current?.abort();
+      const controller = new AbortController();
+      following.current = controller;
+      setView({ kind: 'loading' });
+      try {
+        let run = await getReport(id);
+        if (run.status === 'running') {
+          setView({
+            kind: 'running', id, topic: run.topic, stage: null, message: null,
+            startedAt: new Date(run.created_at).getTime(),
+          });
+          await followResearch(
+            id,
+            (stage, message) => setView(v => (v.kind === 'running' && v.id === id ? { ...v, stage, message } : v)),
+            controller.signal,
+          );
+          run = await getReport(id);
+          refreshHistory();
+        }
+        if (controller.signal.aborted) return;
+        if (run.report) {
+          setView({ kind: 'report', id, report: run.report, createdAt: run.created_at, duration: run.duration_seconds });
+        } else {
+          setView({ kind: 'error', topic: run.topic, message: run.error ?? 'This report did not finish.' });
+        }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setView({ kind: 'error', message: getErrorMessage(err) });
+        refreshHistory();
+      }
+    },
+    [refreshHistory],
+  );
+
+  // The address decides what is shown
+  useEffect(() => {
+    const sync = () => {
+      const id = runIdFromHash();
+      if (id) {
+        openRun(id);
+      } else {
+        following.current?.abort();
+        setView({ kind: 'home' });
+      }
+    };
+    sync();
+    refreshHistory();
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, [openRun, refreshHistory]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme) root.dataset.theme = theme;
+    else delete root.dataset.theme;
+  }, [theme]);
+
+  const toggleTheme = () => {
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const next: Theme = (theme ?? (systemDark ? 'dark' : 'light')) === 'dark' ? 'light' : 'dark';
+    setTheme(next);
     try {
-      const data = await streamResearch(query, setProgress);
-      setReport(data);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-      setProgress(null);
+      localStorage.setItem('markey.theme', next);
+    } catch {
+      // The choice just won't be remembered
     }
   };
 
-  const itemVariant = {
-    hidden: { opacity: 0, scale: 0.95 },
-    visible: { opacity: 1, scale: 1 }
+  const handleSearch = async (topic: string) => {
+    setView({ kind: 'loading' });
+    try {
+      const id = await startResearch(topic);
+      navigate(id);
+      refreshHistory();
+    } catch (err) {
+      setView({ kind: 'error', topic, message: getErrorMessage(err) });
+    }
   };
 
+  const goHome = () => navigate(null);
+
+  const openFromHistory = (id: string) => {
+    setHistoryOpen(false);
+    if (runIdFromHash() === id) openRun(id);
+    else navigate(id);
+  };
+
+  const handleDelete = async (run: RunSummary) => {
+    if (!window.confirm(`Delete the report on "${run.topic}"?`)) return;
+    try {
+      await deleteReport(run.id);
+      setRuns(rs => rs.filter(r => r.id !== run.id));
+      if (runIdFromHash() === run.id) goHome();
+    } catch (err) {
+      window.alert(getErrorMessage(err));
+    }
+  };
+
+  const activeId = view.kind === 'running' || view.kind === 'report' ? view.id : null;
+  const recent = runs.slice(0, 6);
+
   return (
-    <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-color)', overflow: 'hidden' }}>
-      
-      {/* Skeletons or Bento Grid */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px', paddingBottom: '150px' }}>
-        
-        {!loading && !report && (
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-            <h1 style={{ fontSize: '4rem', marginBottom: '16px', color: '#2d3748' }}>Market Analyst AI</h1>
-            <p style={{ color: '#718096', fontSize: '1.2rem', fontWeight: 500 }}>Market research on any topic, with every claim linked to its source</p>
-          </div>
-        )}
+    <MotionConfig reducedMotion="user">
+      <div className="backdrop" aria-hidden="true" />
+      <div className="app">
+        <header className="topbar">
+          <button className="icon-button" onClick={() => setHistoryOpen(true)} aria-label="Open history">
+            <History size={18} />
+          </button>
+          <button className="brand" onClick={goHome}>
+            <span className="brand-mark" aria-hidden="true">M</span>
+            Markey
+          </button>
+          <div className="spacer" />
+          <button className="icon-button" onClick={toggleTheme} aria-label="Switch light or dark appearance">
+            <Sun size={18} className="theme-light-icon" />
+            <Moon size={18} className="theme-dark-icon" />
+          </button>
+        </header>
 
-        {loading && (
-          <>
-            {progress && <p style={{ textAlign: 'center', color: '#4a5568', fontWeight: 500, marginBottom: '16px' }}>{progress}…</p>}
-            <SkeletonLoader />
-          </>
-        )}
-
-        {!loading && report && (
-          <motion.div 
-            initial="hidden"
-            animate="visible"
-            transition={{ staggerChildren: 0.1 }}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '24px'
-            }}
-          >
-            {/* Top Left: Header */}
-            <motion.div variants={itemVariant} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 24px' }}>
-               <h2 style={{ fontSize: '3rem', color: '#2d3748', lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: '16px' }}>
-                  {report.industry_name} <br/> Industry
-               </h2>
-               <p style={{ color: '#718096', fontSize: '1.1rem' }}>Generated Analysis Report</p>
-            </motion.div>
-
-            {/* Top Right: Chart */}
-            <motion.div variants={itemVariant} style={{ minHeight: '340px' }}>
-               <CompetitorChart competitors={report.competitors} />
-            </motion.div>
-
-            {/* Middle Left: Summary */}
-            <motion.div variants={itemVariant} style={{ minHeight: 0 }}>
-               <Card style={{ margin: 0, padding: '24px', display: 'flex', flexDirection: 'column' }}>
-                  <h3 style={{ fontSize: '1.2rem', marginBottom: '12px', color: '#4a5568' }}>Executive Summary</h3>
-                  <div style={{ flex: 1, paddingRight: '8px' }}>
-                    <p style={{ lineHeight: '1.6', fontSize: '0.95rem', marginBottom: '16px', color: '#4a5568' }}>{report.executive_summary}<Citations ids={report.executive_summary_source_ids} sources={report.sources} /></p>
-                    <h4 style={{ fontSize: '1rem', marginBottom: '8px', color: '#4a5568' }}>Key Trends</h4>
-                    <ul style={{ paddingLeft: '20px', lineHeight: '1.6', color: '#4a5568', fontSize: '0.9rem' }}>
-                      {report.key_trends.map((trend, i) => <li key={i} style={{ marginBottom: '4px' }}>{trend.text}<Citations ids={trend.source_ids} sources={report.sources} /></li>)}
-                    </ul>
+        <main className="main">
+          {view.kind === 'home' && (
+            <>
+              <section className="hero">
+                <h1>
+                  Market research,
+                  <br />
+                  <span className="hero-gradient">backed by sources.</span>
+                </h1>
+                <p>Name any market, product or industry. Markey reads the web and writes a brief where every claim links to its evidence.</p>
+              </section>
+              <SearchBar onSearch={handleSearch} />
+              {recent.length > 0 && (
+                <section className="recent">
+                  <h2 className="section-title">Recent reports</h2>
+                  <div className="recent-grid">
+                    {recent.map(run => (
+                      <button key={run.id} className="recent-card glass" onClick={() => openFromHistory(run.id)}>
+                        <strong>{run.industry_name ?? run.topic}</strong>
+                        <span className="history-meta">
+                          <StatusBadge status={run.status} />
+                          <span className="meta">
+                            {relativeTime(run.created_at)}
+                            {run.source_count > 0 && ` · ${run.source_count} sources`}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
                   </div>
-               </Card>
-            </motion.div>
+                </section>
+              )}
+            </>
+          )}
 
-            {/* Middle Right: Whitespace */}
-            <motion.div variants={itemVariant} style={{ minHeight: 0 }}>
-               <Card style={{ margin: 0, padding: '24px', display: 'flex', flexDirection: 'column' }}>
-                  <h3 style={{ fontSize: '1.2rem', marginBottom: '12px', color: '#4a5568' }}>Whitespace Opportunities</h3>
-                  <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', paddingRight: '8px' }}>
-                    <ul style={{ paddingLeft: '20px', lineHeight: '1.6', color: '#4a5568', fontSize: '0.95rem' }}>
-                      {report.whitespace_opportunities.map((opp, i) => <li key={i} style={{ marginBottom: '8px' }}>{opp.text}<Citations ids={opp.source_ids} sources={report.sources} /></li>)}
-                    </ul>
-                  </div>
-               </Card>
-            </motion.div>
+          {view.kind === 'loading' && (
+            <div style={{ display: 'grid', placeItems: 'center', paddingTop: '20vh', color: 'var(--text-muted)' }}>
+              <Loader2 size={28} className="spin" aria-label="Loading" />
+            </div>
+          )}
 
-            {/* Bottom: Competitors Row */}
-            <motion.div variants={itemVariant} style={{ gridColumn: 'span 2', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-               <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${Math.max(report.competitors.length, 1)}, 1fr)`, gap: '24px', minHeight: 0 }}>
-                  {report.competitors.map((comp, i) => (
-                    <Card key={i} style={{ margin: 0, padding: '20px', display: 'flex', flexDirection: 'column' }}>
-                      <h4 style={{ fontSize: '1.2rem', marginBottom: '12px', color: '#2d3748', borderBottom: '1px solid rgba(163, 177, 198, 0.3)', paddingBottom: '8px' }}>{comp.name}<Citations ids={comp.source_ids} sources={report.sources} /></h4>
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', color: '#4a5568', fontSize: '0.9rem', paddingRight: '4px' }}>
-                        
-                        <div style={{ paddingBottom: '12px', marginBottom: '12px', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
-                           <strong style={{ color: '#3b82f6', display: 'block', marginBottom: '4px', fontSize: '0.95rem' }}>Pricing Model</strong>
-                           <span style={{ lineHeight: '1.5' }}>{comp.pricing_model}</span>
-                        </div>
-                        
-                        <div style={{ paddingBottom: '12px', marginBottom: '12px', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
-                           <strong style={{ color: '#f59e0b', display: 'block', marginBottom: '4px', fontSize: '0.95rem' }}>Target Audience</strong>
-                           <span style={{ lineHeight: '1.5' }}>{comp.target_audience}</span>
-                        </div>
-                        
-                        <div style={{ paddingBottom: '4px' }}>
-                           <strong style={{ color: '#8b5cf6', display: 'block', marginBottom: '4px', fontSize: '0.95rem' }}>Value Proposition</strong>
-                           <span style={{ lineHeight: '1.5' }}>{comp.core_value_proposition}</span>
-                        </div>
+          {view.kind === 'running' && (
+            <ProgressSteps topic={view.topic} stage={view.stage} message={view.message} startedAt={view.startedAt} />
+          )}
 
-                      </div>
-                    </Card>
-                  ))}
-               </div>
-            </motion.div>
+          {view.kind === 'report' && (
+            <ReportView report={view.report} createdAt={view.createdAt} durationSeconds={view.duration} onNew={goHome} />
+          )}
 
-            {/* Sources */}
-            {report.sources.length > 0 && (
-              <motion.div variants={itemVariant} style={{ gridColumn: 'span 2' }}>
-                <SourcesList sources={report.sources} />
-              </motion.div>
-            )}
-            
-          </motion.div>
-        )}
+          {view.kind === 'error' && (
+            <section className="error-card glass" role="alert">
+              <div className="error-icon">
+                <AlertCircle size={24} aria-hidden="true" />
+              </div>
+              <h2>{view.topic ? `Couldn't finish "${view.topic}"` : 'Something went wrong'}</h2>
+              <p>{view.message}</p>
+              <div className="actions">
+                {view.topic && (
+                  <button className="button button-primary" onClick={() => handleSearch(view.topic!)}>
+                    Try again
+                  </button>
+                )}
+                <button className="button button-secondary" onClick={goHome}>
+                  New research
+                </button>
+              </div>
+            </section>
+          )}
+        </main>
       </div>
 
-      {/* Fixed Bottom Search Bar */}
-      <div style={{ padding: '24px', zIndex: 10 }}>
-        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <SearchBar onSearch={handleSearch} isLoading={loading} />
-          {error && <p style={{ color: '#e53e3e', marginTop: '12px', textAlign: 'center', fontWeight: 500, fontSize: '0.9rem' }}>{error}</p>}
-        </div>
-      </div>
-
-    </div>
+      <HistoryDrawer
+        open={historyOpen}
+        runs={runs}
+        activeId={activeId}
+        onClose={() => setHistoryOpen(false)}
+        onOpen={openFromHistory}
+        onDelete={handleDelete}
+      />
+    </MotionConfig>
   );
 }
 

@@ -59,7 +59,22 @@ graph TD
 6. **Write:** the LLM receives numbered sources and must give `source_ids` for every trend, competitor and opportunity.
 7. **Check citations:** IDs that don't match a real source are removed, and any statement left with no source is dropped before the report is returned with its source list.
 
-`/research/stream` sends `progress` events for each stage, then a `report` or `error` event, as server-sent events. Without a search API key, steps 1 to 4 are skipped and reports use pages stored earlier with `/scrape`.
+Without a search API key, steps 1 to 4 are skipped and reports use pages stored earlier with `/scrape`.
+
+## Jobs and saved reports
+
+Every run is a background job (`services/jobs.py`) saved in SQLite (`services/store.py`, `DATABASE_PATH`, default `./markey.db`).
+
+- `POST /research/jobs` starts a run and returns its id.
+- `GET /research/jobs/{id}/events` streams server-sent events: `job`, then `progress` per stage, then `report` or `error`. Events replay from the start, so a client can reconnect after a reload or dropped connection; the run keeps going either way.
+- `POST /research/stream` starts a job and streams it in one request; `POST /research` waits and returns the report.
+- `GET /reports`, `GET /reports/{id}` and `DELETE /reports/{id}` serve the history. Runs left unfinished by a server restart are marked failed on startup.
+
+The dashboard gives each run its own address (`#/r/<id>`), so reloading the page reconnects to a running report.
+
+## Citation benchmark
+
+`python -m evals.citation_benchmark` researches 10 fixed topics and scores each statement by how many of its content words appear in the pages it cites. Results are written to `evals/results/` (not committed).
 
 ## Application Lifecycle & Components
 

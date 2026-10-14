@@ -50,3 +50,5 @@ cd frontend && npm run lint && npm run build
 ```
 
 CI runs the same checks on every pull request.
+
+To measure citation quality against real search and a real model, run `python -m evals.citation_benchmark` (add `--limit 2` for a quick check). It writes a table to `evals/results/`.

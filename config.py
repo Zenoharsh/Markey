@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     page_fetch_timeout_seconds: float = 45.0
 
     # Storage and API
+    # Saved reports and research history
+    database_path: str = "./markey.db"
     chroma_path: str = "./chroma_db"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     llm_timeout_seconds: float = 120.0

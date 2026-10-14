@@ -18,3 +18,9 @@ chroma_db/
 .vscode/
 .idea/
 .DS_Store
+
+# Saved reports
+markey.db
+
+# Local benchmark output
+evals/results/

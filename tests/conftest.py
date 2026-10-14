@@ -17,6 +17,7 @@ def isolated_settings(monkeypatch, tmp_path):
     for var in ("LLM_PROVIDER", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OLLAMA_BASE_URL", "TAVILY_API_KEY", "BRAVE_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "markey.db"))
     caches = (get_settings, get_llm_provider, get_search_provider)
     for cached in caches:
         cached.cache_clear()
