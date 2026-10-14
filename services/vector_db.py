@@ -1,12 +1,11 @@
 import chromadb
 import hashlib
 import logging
-import asyncio
 from fastapi.concurrency import run_in_threadpool
 from functools import lru_cache
 
 from config import get_settings
-from services.embeddings import generate_embedding
+from services.embeddings import generate_embedding, generate_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -24,37 +23,16 @@ async def store_documents(chunks: list[str], source_url: str, title: str = ""):
     # Replace any chunks stored from an earlier fetch of this page, so a shorter page leaves no stale chunks
     await run_in_threadpool(get_collection().delete, where={"url": source_url})
         
-    # Generate embeddings concurrently for speed
-    tasks = [generate_embedding(chunk) for chunk in chunks]
-    embeddings = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    valid_embeddings = []
-    ids = []
-    metadatas = []
-    documents = []
-    
-    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-        if isinstance(emb, Exception):
-            logger.error(f"Failed to generate embedding for chunk {i}: {emb}")
-            continue
-            
-        valid_embeddings.append(emb)
-        # Deterministic chunk ID prevents duplicates on re-scrape
-        chunk_id = hashlib.sha256(f"{source_url}_{i}".encode()).hexdigest()
-        ids.append(chunk_id)
-        metadatas.append({"url": source_url, "title": title})
-        documents.append(chunk)
-            
-    if ids:
-        # Offload synchronous ChromaDB upsert to a threadpool
-        await run_in_threadpool(
-            get_collection().upsert,
-            ids=ids,
-            embeddings=valid_embeddings,
-            metadatas=metadatas,
-            documents=documents
-        )
-        logger.info(f"Upserted {len(ids)} chunks to ChromaDB.")
+    # One batched embedding call per page; ids are deterministic so a re-scrape never duplicates chunks
+    embeddings = await generate_embeddings(chunks)
+    await run_in_threadpool(
+        get_collection().upsert,
+        ids=[hashlib.sha256(f"{source_url}_{i}".encode()).hexdigest() for i in range(len(chunks))],
+        embeddings=embeddings,
+        metadatas=[{"url": source_url, "title": title} for _ in chunks],
+        documents=chunks,
+    )
+    logger.info(f"Stored {len(chunks)} chunks from {source_url}")
 
 async def retrieve_context(query: str, top_k: int = 5, urls: list[str] | None = None) -> list[dict]:
     """Returns the chunks closest to the query, optionally only from the given source URLs."""

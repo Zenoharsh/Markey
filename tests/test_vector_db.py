@@ -6,8 +6,13 @@ async def fake_embedding(text):
     return [float(len(text) % 7), float(text.count("a")), 1.0]
 
 
+async def fake_embeddings(texts):
+    return [await fake_embedding(t) for t in texts]
+
+
 async def test_restoring_a_page_replaces_its_old_chunks(monkeypatch):
     monkeypatch.setattr(vector_db, "generate_embedding", fake_embedding)
+    monkeypatch.setattr(vector_db, "generate_embeddings", fake_embeddings)
     vector_db.get_collection.cache_clear()
 
     await vector_db.store_documents(["one", "two", "three"], "https://a.example", "A")

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timezone
 
@@ -103,7 +104,7 @@ async def collect_sources(topic: str, progress: ProgressCallback) -> list[Source
             break
         if not text or len(text) < MIN_CONTENT_CHARS:
             continue
-        chunks = await run_in_threadpool(chunk_text, text)
+        chunks = await run_in_threadpool(chunk_text, text[: settings.max_page_chars])
         await store_documents(chunks, result.url, result.title)
         sources.append(
             Source(
@@ -176,9 +177,11 @@ async def run_research(topic: str, progress: ProgressCallback | None = None) -> 
     otherwise uses pages previously stored with /scrape.
     """
     progress = progress or _no_progress
+    started = time.perf_counter()
 
     if get_search_provider() is not None:
         sources = await collect_sources(topic, progress)
+        logger.info(f"Collected {len(sources)} sources in {time.perf_counter() - started:.1f}s")
         await progress("analyzing", f"Picking the most relevant passages from {len(sources)} sources")
         chunks = await retrieve_context(topic, top_k=CONTEXT_CHUNKS, urls=[s.url for s in sources])
         if not chunks:
@@ -194,5 +197,10 @@ async def run_research(topic: str, progress: ProgressCallback | None = None) -> 
         sources = _sources_from_chunks(chunks)
 
     await progress("writing", "Writing the report")
+    writing_started = time.perf_counter()
     draft = await generate_research_report(topic, chunks, {s.url: s.id for s in sources})
+    logger.info(
+        f"Wrote the report in {time.perf_counter() - writing_started:.1f}s "
+        f"({time.perf_counter() - started:.1f}s total)"
+    )
     return apply_citations(draft, sources)

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "llama3.2"
     ollama_embed_model: str = "nomic-embed-text"
+    ollama_num_ctx: int = 16384
 
     # Anthropic (hosted)
     anthropic_api_key: str | None = None
@@ -31,6 +32,8 @@ class Settings(BaseSettings):
     research_max_sources: int = 8
     research_min_sources: int = 2
     search_timeout_seconds: float = 20.0
+    # Long pages are cut to this many characters before chunking, which keeps local embedding fast
+    max_page_chars: int = 20000
     page_fetch_timeout_seconds: float = 45.0
 
     # Storage and API

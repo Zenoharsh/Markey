@@ -31,13 +31,17 @@ class OllamaProvider:
         self.url = f"{settings.ollama_base_url}/api/generate"
         self.model = settings.ollama_chat_model
         self.timeout = settings.llm_timeout_seconds
+        self.num_ctx = settings.ollama_num_ctx
 
     async def generate_structured(self, prompt: str, schema: type[T]) -> T:
         payload = {
             "model": self.model,
             "prompt": prompt,
-            "format": "json",
+            # Constraining output to the schema stops small models replying with {} or partial objects
+            "format": schema.model_json_schema(),
             "stream": False,
+            # Ollama's default context is too small for the source passages and silently cuts the prompt
+            "options": {"num_ctx": self.num_ctx},
         }
         # Small local models sometimes return malformed JSON, so allow one retry
         last_error: Exception | None = None

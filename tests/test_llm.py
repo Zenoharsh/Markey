@@ -59,7 +59,8 @@ async def test_ollama_returns_validated_report(monkeypatch):
     report = await OllamaProvider(get_settings()).generate_structured("prompt", MarketResearchReport)
     assert report.competitors[0].name == "Acme Notes"
     assert calls[0]["model"] == "llama3.2"
-    assert calls[0]["format"] == "json"
+    assert calls[0]["format"]["required"] == MarketResearchReport.model_json_schema()["required"]
+    assert calls[0]["options"]["num_ctx"] == 16384
 
 
 async def test_ollama_retries_once_on_invalid_json(monkeypatch):

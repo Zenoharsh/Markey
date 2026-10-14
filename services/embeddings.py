@@ -1,39 +1,32 @@
-import httpx
 import logging
+
+import httpx
 
 from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-async def generate_embedding(text: str) -> list[float]:
-    """
-    Connects to a local Ollama instance and uses the configured embedding model
-    to generate embeddings for a given text chunk.
-    """
+# Chunks sent to Ollama per request; one request per batch is far faster than one per chunk
+BATCH_SIZE = 32
+
+
+async def generate_embeddings(texts: list[str]) -> list[list[float]]:
+    """Embeds the texts with the configured Ollama model, in order, using as few requests as possible."""
     settings = get_settings()
     url = f"{settings.ollama_base_url}/api/embed"
-    payload = {
-        "model": settings.ollama_embed_model,
-        "input": text
-    }
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, timeout=60.0)
+    embeddings: list[list[float]] = []
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for start in range(0, len(texts), BATCH_SIZE):
+            batch = texts[start : start + BATCH_SIZE]
+            response = await client.post(url, json={"model": settings.ollama_embed_model, "input": batch})
             response.raise_for_status()
-            data = response.json()
-            
-            # The API returns 'embeddings' which is a list of lists.
-            # Since we provide a single string input, we return the first embedding.
-            if "embeddings" in data and len(data["embeddings"]) > 0:
-                return data["embeddings"][0]
-            elif "embedding" in data:
-                # Fallback for /api/embeddings standard (older Ollama format)
-                return data["embedding"]
-            else:
-                logger.error("Unexpected response structure from Ollama: %s", data)
-                raise ValueError("Could not find embedding in response from Ollama")
-                
-    except Exception as e:
-        logger.error(f"Error generating embedding from Ollama: {str(e)}")
-        raise e
+            vectors = response.json().get("embeddings") or []
+            if len(vectors) != len(batch):
+                logger.error("Ollama returned %d embeddings for %d texts", len(vectors), len(batch))
+                raise ValueError("Ollama returned the wrong number of embeddings")
+            embeddings.extend(vectors)
+    return embeddings
+
+
+async def generate_embedding(text: str) -> list[float]:
+    return (await generate_embeddings([text]))[0]
