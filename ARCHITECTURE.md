@@ -47,6 +47,20 @@ graph TD
     J -->|ResearchReport| A1
 ```
 
+## Research pipeline (`POST /research`, `POST /research/stream`)
+
+`services/research.py` runs one research job:
+
+1. **Plan:** the topic becomes four searches covering the overall topic, market size, competitors and pricing, and trends.
+2. **Discover:** `services/search.py` runs them through Tavily, falling back to Brave Search if Tavily fails. Results are interleaved and de-duplicated.
+3. **Read:** pages come from the search API's full text when it provides it, otherwise from the Playwright scraper, with a timeout per page. Thin or failed pages are skipped. Up to `RESEARCH_MAX_SOURCES` pages are kept, and fewer than `RESEARCH_MIN_SOURCES` stops the run with a 422.
+4. **Store:** pages are chunked and embedded into ChromaDB with their URL and title. Re-reading a page replaces its old chunks.
+5. **Retrieve:** the 12 passages closest to the topic are pulled, only from this run's sources.
+6. **Write:** the LLM receives numbered sources and must give `source_ids` for every trend, competitor and opportunity.
+7. **Check citations:** IDs that don't match a real source are removed, and any statement left with no source is dropped before the report is returned with its source list.
+
+`/research/stream` sends `progress` events for each stage, then a `report` or `error` event, as server-sent events. Without a search API key, steps 1 to 4 are skipped and reports use pages stored earlier with `/scrape`.
+
 ## Application Lifecycle & Components
 
 ### 1. Data Ingestion (`/scrape`)

@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-5-5"
 
+    # Source discovery - set at least one key to research any topic from the live web.
+    # Tavily is tried first, Brave is the fallback. With neither, reports use only pages stored via /scrape.
+    tavily_api_key: str | None = None
+    brave_api_key: str | None = None
+    research_max_sources: int = 8
+    research_min_sources: int = 2
+    search_timeout_seconds: float = 20.0
+    page_fetch_timeout_seconds: float = 45.0
+
     # Storage and API
     chroma_path: str = "./chroma_db"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]

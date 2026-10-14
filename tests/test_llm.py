@@ -5,14 +5,15 @@ import httpx
 import pytest
 
 from config import get_settings
-from models.request_models import MarketResearchReport
+from models.request_models import ReportDraft as MarketResearchReport
 from services import llm
 from services.llm import AnthropicProvider, LLMError, OllamaProvider, get_llm_provider
 
 VALID_REPORT = {
     "industry_name": "Note-taking apps",
     "executive_summary": "A crowded market.",
-    "key_trends": ["AI summaries"],
+    "executive_summary_source_ids": [1],
+    "key_trends": [{"text": "AI summaries", "source_ids": [1]}],
     "competitors": [
         {
             "name": "Acme Notes",
@@ -20,9 +21,10 @@ VALID_REPORT = {
             "core_value_proposition": "Fast capture",
             "target_audience": "Students",
             "market_strength_score": 6,
+            "source_ids": [1],
         }
     ],
-    "whitespace_opportunities": ["Offline-first teams"],
+    "whitespace_opportunities": [{"text": "Offline-first teams", "source_ids": [2]}],
 }
 
 

@@ -1,6 +1,6 @@
 # Markey
 
-AI-powered market research: type a topic or product and get a structured brief covering the industry, trends, competitors and whitespace opportunities.
+AI-powered market research: type a topic or product and get a structured brief covering the industry, trends, competitors and whitespace opportunities. Every statement links to the web sources it came from.
 
 The backend is FastAPI. It scrapes pages, stores them in ChromaDB and writes reports with an LLM, either local Ollama or the hosted Claude API. The frontend is a React + Vite dashboard. See [ARCHITECTURE.md](ARCHITECTURE.md) for the data flow.
 
@@ -17,6 +17,8 @@ python -m playwright install chromium
 copy .env.example .env           # macOS/Linux: cp .env.example .env
 python main.py                   # http://localhost:8000/docs
 ```
+
+To research any topic from the live web, set `TAVILY_API_KEY` (and optionally `BRAVE_API_KEY` as a fallback) in `.env`. Without a search key, reports only use pages you've added with `POST /scrape`.
 
 Embeddings always use Ollama, so run `ollama pull nomic-embed-text` and keep `ollama serve` running.
 

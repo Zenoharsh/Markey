@@ -4,24 +4,29 @@ import { SearchBar } from './components/SearchBar';
 import { Card } from './components/Card';
 import { CompetitorChart } from './components/CompetitorChart';
 import { SkeletonLoader } from './components/SkeletonLoader';
-import { fetchResearch, getErrorMessage } from './api/client';
+import { Citations } from './components/Citations';
+import { SourcesList } from './components/SourcesList';
+import { streamResearch, getErrorMessage } from './api/client';
 import type { MarketResearchReport } from './types';
 
 function App() {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<MarketResearchReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
 
   const handleSearch = async (query: string) => {
     setLoading(true);
     setError(null);
+    setProgress('Starting research');
     try {
-      const data = await fetchResearch(query);
+      const data = await streamResearch(query, setProgress);
       setReport(data);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
@@ -39,11 +44,16 @@ function App() {
         {!loading && !report && (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
             <h1 style={{ fontSize: '4rem', marginBottom: '16px', color: '#2d3748' }}>Market Analyst AI</h1>
-            <p style={{ color: '#718096', fontSize: '1.2rem', fontWeight: 500 }}>Generic industry analysis powered by RAG</p>
+            <p style={{ color: '#718096', fontSize: '1.2rem', fontWeight: 500 }}>Market research on any topic, with every claim linked to its source</p>
           </div>
         )}
 
-        {loading && <SkeletonLoader />}
+        {loading && (
+          <>
+            {progress && <p style={{ textAlign: 'center', color: '#4a5568', fontWeight: 500, marginBottom: '16px' }}>{progress}…</p>}
+            <SkeletonLoader />
+          </>
+        )}
 
         {!loading && report && (
           <motion.div 
@@ -74,10 +84,10 @@ function App() {
                <Card style={{ margin: 0, padding: '24px', display: 'flex', flexDirection: 'column' }}>
                   <h3 style={{ fontSize: '1.2rem', marginBottom: '12px', color: '#4a5568' }}>Executive Summary</h3>
                   <div style={{ flex: 1, paddingRight: '8px' }}>
-                    <p style={{ lineHeight: '1.6', fontSize: '0.95rem', marginBottom: '16px', color: '#4a5568' }}>{report.executive_summary}</p>
+                    <p style={{ lineHeight: '1.6', fontSize: '0.95rem', marginBottom: '16px', color: '#4a5568' }}>{report.executive_summary}<Citations ids={report.executive_summary_source_ids} sources={report.sources} /></p>
                     <h4 style={{ fontSize: '1rem', marginBottom: '8px', color: '#4a5568' }}>Key Trends</h4>
                     <ul style={{ paddingLeft: '20px', lineHeight: '1.6', color: '#4a5568', fontSize: '0.9rem' }}>
-                      {report.key_trends.map((trend, i) => <li key={i} style={{ marginBottom: '4px' }}>{trend}</li>)}
+                      {report.key_trends.map((trend, i) => <li key={i} style={{ marginBottom: '4px' }}>{trend.text}<Citations ids={trend.source_ids} sources={report.sources} /></li>)}
                     </ul>
                   </div>
                </Card>
@@ -89,7 +99,7 @@ function App() {
                   <h3 style={{ fontSize: '1.2rem', marginBottom: '12px', color: '#4a5568' }}>Whitespace Opportunities</h3>
                   <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', paddingRight: '8px' }}>
                     <ul style={{ paddingLeft: '20px', lineHeight: '1.6', color: '#4a5568', fontSize: '0.95rem' }}>
-                      {report.whitespace_opportunities.map((opp, i) => <li key={i} style={{ marginBottom: '8px' }}>{opp}</li>)}
+                      {report.whitespace_opportunities.map((opp, i) => <li key={i} style={{ marginBottom: '8px' }}>{opp.text}<Citations ids={opp.source_ids} sources={report.sources} /></li>)}
                     </ul>
                   </div>
                </Card>
@@ -100,7 +110,7 @@ function App() {
                <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${Math.max(report.competitors.length, 1)}, 1fr)`, gap: '24px', minHeight: 0 }}>
                   {report.competitors.map((comp, i) => (
                     <Card key={i} style={{ margin: 0, padding: '20px', display: 'flex', flexDirection: 'column' }}>
-                      <h4 style={{ fontSize: '1.2rem', marginBottom: '12px', color: '#2d3748', borderBottom: '1px solid rgba(163, 177, 198, 0.3)', paddingBottom: '8px' }}>{comp.name}</h4>
+                      <h4 style={{ fontSize: '1.2rem', marginBottom: '12px', color: '#2d3748', borderBottom: '1px solid rgba(163, 177, 198, 0.3)', paddingBottom: '8px' }}>{comp.name}<Citations ids={comp.source_ids} sources={report.sources} /></h4>
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', color: '#4a5568', fontSize: '0.9rem', paddingRight: '4px' }}>
                         
                         <div style={{ paddingBottom: '12px', marginBottom: '12px', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
@@ -123,6 +133,13 @@ function App() {
                   ))}
                </div>
             </motion.div>
+
+            {/* Sources */}
+            {report.sources.length > 0 && (
+              <motion.div variants={itemVariant} style={{ gridColumn: 'span 2' }}>
+                <SourcesList sources={report.sources} />
+              </motion.div>
+            )}
             
           </motion.div>
         )}

@@ -17,9 +17,12 @@ def get_collection():
     client = chromadb.PersistentClient(path=get_settings().chroma_path)
     return client.get_or_create_collection(name="market_research")
 
-async def store_documents(chunks: list[str], source_url: str):
+async def store_documents(chunks: list[str], source_url: str, title: str = ""):
     if not chunks:
         return
+
+    # Replace any chunks stored from an earlier fetch of this page, so a shorter page leaves no stale chunks
+    await run_in_threadpool(get_collection().delete, where={"url": source_url})
         
     # Generate embeddings concurrently for speed
     tasks = [generate_embedding(chunk) for chunk in chunks]
@@ -39,7 +42,7 @@ async def store_documents(chunks: list[str], source_url: str):
         # Deterministic chunk ID prevents duplicates on re-scrape
         chunk_id = hashlib.sha256(f"{source_url}_{i}".encode()).hexdigest()
         ids.append(chunk_id)
-        metadatas.append({"url": source_url})
+        metadatas.append({"url": source_url, "title": title})
         documents.append(chunk)
             
     if ids:
@@ -53,15 +56,18 @@ async def store_documents(chunks: list[str], source_url: str):
         )
         logger.info(f"Upserted {len(ids)} chunks to ChromaDB.")
 
-async def retrieve_context(query: str, top_k: int = 5) -> list[dict]:
+async def retrieve_context(query: str, top_k: int = 5, urls: list[str] | None = None) -> list[dict]:
+    """Returns the chunks closest to the query, optionally only from the given source URLs."""
     try:
         query_embedding = await generate_embedding(query)
-        
+        where = {"url": {"$in": urls}} if urls else None
+
         # Offload synchronous ChromaDB query to a threadpool
         results = await run_in_threadpool(
             get_collection().query,
             query_embeddings=[query_embedding],
-            n_results=top_k
+            n_results=top_k,
+            where=where,
         )
         
         context_chunks = []
