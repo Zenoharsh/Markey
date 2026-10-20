@@ -31,6 +31,9 @@ class KeyFigure(BaseModel):
     unit: str = Field(description="e.g. 'USD billion', '%', 'million users'")
     year: int | None = Field(description="Year the figure refers to, if stated")
     kind: Literal["market_size", "forecast", "growth_rate", "market_share", "other"]
+    segment: str | None = Field(
+        description="The segment, region, product or company this figure is about; null when it is for the whole market"
+    )
     source_ids: list[int]
 
 

@@ -27,7 +27,7 @@ def competitor(name, ids, share=None):
 
 
 def figure(value, ids, label="Market size"):
-    return KeyFigure(label=label, value=value, unit="USD billion", year=2025, kind="market_size", source_ids=ids)
+    return KeyFigure(label=label, value=value, unit="USD billion", year=2025, kind="market_size", segment=None, source_ids=ids)
 
 
 def draft(**overrides):

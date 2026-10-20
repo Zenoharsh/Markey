@@ -9,6 +9,8 @@ export interface KeyFigure {
   unit: string;
   year: number | null;
   kind: 'market_size' | 'forecast' | 'growth_rate' | 'market_share' | 'other';
+  // The segment, region or company the figure is about; null for the whole market
+  segment: string | null;
   source_ids: number[];
 }
 

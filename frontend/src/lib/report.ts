@@ -18,6 +18,18 @@ export const normalizeReport = (raw: MarketResearchReport): MarketResearchReport
     scale: c.scale ?? null,
     market_share_percent: c.market_share_percent ?? null,
   }));
+  // Briefs written before figures carried a segment: keep only clear whole-market figures as headline candidates
+  report.key_figures = report.key_figures.map(f =>
+    f.segment !== undefined
+      ? f
+      : {
+          ...f,
+          segment:
+            f.kind === 'market_size' || f.kind === 'forecast' || (f.kind === 'growth_rate' && /market/i.test(f.label))
+              ? null
+              : f.label,
+        },
+  );
   report.removed_statements ??= 0;
   report.removed_figures ??= 0;
   return report;

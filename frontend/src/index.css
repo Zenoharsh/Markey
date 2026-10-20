@@ -626,8 +626,65 @@ button {
   color: var(--text-secondary);
 }
 
+.headlines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.headline {
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: var(--fill);
+  min-width: 0;
+}
+
+.headline-value {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  margin: 6px 0 8px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.headline-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .size-chart {
-  margin-top: 24px;
+  margin-top: 28px;
+}
+
+.size-source {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.figure-block {
+  margin-top: 28px;
+}
+
+details.figure-block summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-text);
+  margin-bottom: 10px;
+  list-style-position: inside;
+}
+
+table.figure-table {
+  min-width: 0;
+}
+
+td.num-plain {
+  font-variant-numeric: tabular-nums;
 }
 
 .size-chart figcaption {
@@ -1269,6 +1326,10 @@ td.num {
     font-size: 26px;
   }
 
+  .headline-value {
+    font-size: 32px;
+  }
+
   /* Every other axis label, so they don't run together on a phone */
   .chart-ticks span:nth-child(2n) {
     visibility: hidden;
@@ -1331,6 +1392,11 @@ td.num {
 
 /* Export PDF: plain pages without the glass, controls or background */
 @media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   :root,
   :root[data-theme] {
     color-scheme: light;
@@ -1369,11 +1435,23 @@ td.num {
     border: 1px solid #ddd !important;
   }
 
-  .panel,
+  /* Big panels may run across pages; small blocks stay whole so nothing is split mid-number */
+  .headline,
   .figure,
   .force,
+  .size-chart,
+  .cited-list li,
   tr {
     break-inside: avoid;
+  }
+
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+
+  .grid-3 {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .table-wrap {

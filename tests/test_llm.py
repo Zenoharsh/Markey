@@ -14,7 +14,7 @@ VALID_REPORT = {
     "executive_summary": "A crowded market.",
     "executive_summary_source_ids": [1],
     "key_figures": [
-        {"label": "Market size", "value": 7.2, "unit": "USD billion", "year": 2025, "kind": "market_size", "source_ids": [1]}
+        {"label": "Market size", "value": 7.2, "unit": "USD billion", "year": 2025, "kind": "market_size", "segment": None, "source_ids": [1]}
     ],
     "key_trends": [{"text": "AI summaries", "source_ids": [1]}],
     "growth_drivers": [],
