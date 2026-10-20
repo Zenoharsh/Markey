@@ -11,6 +11,8 @@ export interface KeyFigure {
   kind: 'market_size' | 'forecast' | 'growth_rate' | 'market_share' | 'other';
   // The segment, region or company the figure is about; null for the whole market
   segment: string | null;
+  // Set when the figure measures a related or broader market, given as context when the asked market wasn't sized
+  related_market?: string | null;
   source_ids: number[];
 }
 

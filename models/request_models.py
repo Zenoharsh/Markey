@@ -1,6 +1,15 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+# What models write when they mean "no value"; stored as a real null so the UI never shows the word
+_EMPTY = {"", "null", "none", "n/a", "na", "unknown", "not stated", "not available", "-"}
+
+
+def _none_if_empty(value):
+    if isinstance(value, str) and value.strip().lower() in _EMPTY:
+        return None
+    return value
 
 class ScrapeRequest(BaseModel):
     url: HttpUrl
@@ -34,7 +43,14 @@ class KeyFigure(BaseModel):
     segment: str | None = Field(
         description="The segment, region, product or company this figure is about; null when it is for the whole market"
     )
+    related_market: str | None = Field(
+        default=None,
+        description="Name of the related or broader market this figure measures, when it is not the market asked about; "
+        "null when it measures the asked market",
+    )
     source_ids: list[int]
+
+    _empty_to_none = field_validator("segment", "related_market", mode="before")(_none_if_empty)
 
 
 class CompetitorData(BaseModel):
@@ -45,6 +61,13 @@ class CompetitorData(BaseModel):
     scale: str | None = Field(description="Size indicators stated in the sources: revenue, funding, users, locations")
     market_share_percent: float | None = Field(description="Market share in percent, only if stated in the sources")
     source_ids: list[int] = Field(description="IDs of the sources this competitor's details come from")
+
+    _empty_to_none = field_validator("pricing_model", "target_audience", "scale", mode="before")(_none_if_empty)
+
+    @field_validator("core_value_proposition", mode="before")
+    @classmethod
+    def _blank_offering(cls, value):
+        return _none_if_empty(value) or ""
 
 
 class ForceAssessment(BaseModel):

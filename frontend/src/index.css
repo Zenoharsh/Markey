@@ -670,6 +670,16 @@ button {
   margin-top: 28px;
 }
 
+.related-note {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 18px;
+}
+
+.related-market + .related-market {
+  margin-top: 28px;
+}
+
 details.figure-block summary {
   cursor: pointer;
   font-size: 14px;

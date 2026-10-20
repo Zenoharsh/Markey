@@ -38,6 +38,7 @@ def plan_queries(topic: str) -> list[str]:
     return [
         topic,
         f"{topic} market size and growth forecast CAGR",
+        f"{topic} market size USD billion",
         f"{topic} competitors market share and pricing",
         f"{topic} industry trends {year}",
         f"{topic} customer segments and demand drivers",

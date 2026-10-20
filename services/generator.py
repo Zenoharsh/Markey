@@ -32,11 +32,12 @@ How to fill each field:
 - industry_name: the market the query is about, in a few words. Stay on the query's market even if some sources drift to a related one; if the sources mostly cover a different market, say so in data_gaps.
 - executive_summary: 3 to 5 sentences a CEO could act on: how big and how fast the market is moving, who leads, and the main opportunity. Use the figures from key_figures where you have them.
 - key_figures: the market's headline numbers, at most 12: total market size by year, forecasts, the overall growth rate (CAGR), and the most important segment sizes, shares or growth rates. Set `segment` for anything that is not the whole market (e.g. "Healthcare", "Hardware", "North America") and leave it null for whole-market figures. When sources disagree, include each source's figure separately. Leave out percentages that describe a driver's or restraint's impact on growth; mention those in growth_drivers or challenges instead. Copy each number exactly as the source writes it (e.g. 12.5 with unit "USD billion", not 12500000000) and give the year it refers to when stated. Numbers that do not appear in the cited source are removed, so never estimate, convert or round.
+  If no source sizes the query's market itself, still include the closest related or broader market's size, forecast and growth rate as context, with `related_market` set to that market's name (e.g. "Marketing automation software"). Leave `related_market` null for figures about the query's market. Never present a related market's figure as the query's market.
 - key_trends: shifts in technology, behaviour, business models or regulation.
-- growth_drivers: forces pushing demand up.
+- growth_drivers: forces pushing demand up in the query's market, not in a related market a source happens to cover.
 - challenges: restraints, risks and barriers to growth or entry.
 - customer_segments: who buys, and what each group needs or values.
-- competitors: the companies named in the sources. Use null for pricing, audience, scale or market share when the sources don't state them. Never invent a market share.
+- competitors: the companies named in the sources, with what each one offers. Use JSON null (not the text "null") for pricing, audience, scale or market share when the sources don't state them. Never invent a market share.
 - competitive_forces: Porter's five forces, each rated low, medium or high with a one-sentence reason drawn from the sources. Skip a force the sources say nothing about.
 - whitespace_opportunities: needs that current players leave unmet.
 - recommendations: 3 to 5 concrete moves for a company entering or competing in this market, each grounded in the evidence above.

@@ -18,7 +18,7 @@ export interface Headline {
 // Up to three numbers a reader can take in at a glance: latest market size, furthest forecast, growth rate.
 // Where sources disagree, the headline keeps every estimate and the tile shows their range.
 export const headlines = (figures: KeyFigure[]): Headline[] => {
-  const market = figures.filter(f => !f.segment);
+  const market = figures.filter(f => !f.segment && !f.related_market);
   const out: Headline[] = [];
 
   const sizes = market.filter(f => f.kind === 'market_size' && f.year !== null);
@@ -51,7 +51,7 @@ export const headlines = (figures: KeyFigure[]): Headline[] => {
 // One source's market size path over time, so the chart never mixes different firms' estimates
 export const sizeSeries = (figures: KeyFigure[]) => {
   const points = figures.filter(
-    f => !f.segment && (f.kind === 'market_size' || f.kind === 'forecast') && f.year !== null && f.source_ids.length,
+    f => !f.segment && !f.related_market && (f.kind === 'market_size' || f.kind === 'forecast') && f.year !== null && f.source_ids.length,
   );
   const bySource = new Map<number, KeyFigure[]>();
   for (const f of points) {

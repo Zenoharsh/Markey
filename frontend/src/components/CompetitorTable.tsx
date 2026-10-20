@@ -32,7 +32,7 @@ export const CompetitorTable: React.FC<{ competitors: CompetitorData[]; sources:
                 {c.name}
                 <Citations ids={c.source_ids} sources={sources} />
               </td>
-              <td>{c.core_value_proposition}</td>
+              <td>{c.core_value_proposition || <NotStated />}</td>
               {showPricing && <td>{c.pricing_model ?? <NotStated />}</td>}
               {showAudience && <td>{c.target_audience ?? <NotStated />}</td>}
               {showScale && <td>{c.scale ?? <NotStated />}</td>}

@@ -140,7 +140,7 @@ async def test_discover_sources_interleaves_and_dedupes(monkeypatch):
     monkeypatch.setattr(research, "get_search_provider", lambda: fake)
     urls = [r.url for r in await discover_sources("scooters")]
     assert urls == ["https://a.example/", "https://b.example", "https://c.example"]
-    assert len(fake.queries) == 6
+    assert len(fake.queries) == 7
 
 
 @pytest.fixture
@@ -203,3 +203,26 @@ async def test_run_research_without_search_uses_stored_pages(monkeypatch, pipeli
     monkeypatch.setattr(research, "get_search_provider", lambda: None)
     report = await run_research("scooters")
     assert [s.url for s in report.sources] == ["https://old.example"]
+
+
+def test_null_words_become_real_nulls():
+    c = CompetitorData(
+        name="Zappi", core_value_proposition="null", pricing_model="null", target_audience="Unknown",
+        scale="N/A", market_share_percent=None, source_ids=[1],
+    )
+    assert (c.core_value_proposition, c.pricing_model, c.target_audience, c.scale) == ("", None, None, None)
+    f = KeyFigure(
+        label="Size", value=5, unit="USD billion", year=2024, kind="market_size", segment="null",
+        related_market="none", source_ids=[1],
+    )
+    assert f.segment is None and f.related_market is None
+
+
+def test_related_market_figures_are_kept():
+    sources = [Source(id=1, url="https://a.example", title="A", retrieved_at="")]
+    figure = KeyFigure(
+        label="Marketing automation software market", value=6.65, unit="USD billion", year=2024,
+        kind="market_size", segment=None, related_market="Marketing automation software", source_ids=[1],
+    )
+    report = apply_citations(draft(key_figures=[figure]), sources, {1: "valued at USD 6.65 billion in 2024"})
+    assert report.key_figures[0].related_market == "Marketing automation software"

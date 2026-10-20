@@ -128,7 +128,8 @@ const FigureTable: React.FC<{ figures: KeyFigure[]; sources: Source[]; segmentCo
   </div>
 );
 
-export const KeyFigures: React.FC<{ figures: KeyFigure[]; sources: Source[] }> = ({ figures, sources }) => {
+// The asked market's own numbers: headlines, one source's chart, segments, then the full list
+const MarketFigures: React.FC<{ figures: KeyFigure[]; sources: Source[] }> = ({ figures, sources }) => {
   const tops = headlines(figures);
   const chart = sizeSeries(figures);
   const segments = figures.filter(f => f.segment);
@@ -153,6 +154,37 @@ export const KeyFigures: React.FC<{ figures: KeyFigure[]; sources: Source[] }> =
           <summary>Every whole-market figure ({rest.length})</summary>
           <FigureTable figures={rest} sources={sources} />
         </details>
+      )}
+    </>
+  );
+};
+
+export const KeyFigures: React.FC<{ figures: KeyFigure[]; sources: Source[] }> = ({ figures, sources }) => {
+  const own = figures.filter(f => !f.related_market);
+  const related = new Map<string, KeyFigure[]>();
+  for (const f of figures) {
+    if (f.related_market) related.set(f.related_market, [...(related.get(f.related_market) ?? []), f]);
+  }
+
+  return (
+    <>
+      {own.length > 0 && <MarketFigures figures={own} sources={sources} />}
+      {related.size > 0 && (
+        <div className={own.length ? 'figure-block' : undefined}>
+          {own.length === 0 && (
+            <p className="related-note">
+              No source sized this market itself. The closest figures the sources give are for a related market, shown
+              below as context rather than as this market's size.
+            </p>
+          )}
+          {[...related].map(([market, list]) => (
+            <section key={market} className="related-market">
+              <h3 className="sub-heading">Related market: {market}</h3>
+              {/* Shown with the same tiles, scoped to that market */}
+              <MarketFigures figures={list.map(f => ({ ...f, related_market: null }))} sources={sources} />
+            </section>
+          ))}
+        </div>
       )}
     </>
   );
