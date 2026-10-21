@@ -66,8 +66,11 @@ def start_job(topic: str, research: Research) -> Job:
     job = Job(store.create_run(topic), topic)
     _jobs[job.id] = job
 
-    async def progress(stage: str, message: str) -> None:
-        await job.emit({"type": "progress", "stage": stage, "message": message})
+    async def progress(stage: str, message: str, agent: str | None = None, done: bool = False) -> None:
+        event = {"type": "progress", "stage": stage, "message": message}
+        if agent:
+            event |= {"agent": agent, "done": done}
+        await job.emit(event)
 
     async def run() -> None:
         started = time.perf_counter()

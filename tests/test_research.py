@@ -1,14 +1,27 @@
 import pytest
 
-from models.request_models import CitedText, CompetitorData, ForceAssessment, KeyFigure, ReportDraft, Source
+from models.request_models import (
+    CitedText,
+    CompetitionSection,
+    CompetitorData,
+    DemandSection,
+    ForceAssessment,
+    KeyFigure,
+    MarketScope,
+    ReportDraft,
+    SizingSection,
+    Source,
+    StrategySection,
+    TrendsSection,
+)
 from services import research
 from services.research import (
     InsufficientEvidence,
     apply_citations,
-    discover_sources,
     gather_evidence,
     number_stated,
     run_research,
+    search_all,
 )
 from services.search import SearchResult
 
@@ -98,8 +111,7 @@ def test_number_stated(value, text, expected):
     assert number_stated(value, text) is expected
 
 
-async def test_gather_evidence_covers_every_theme_within_budget(monkeypatch):
-    monkeypatch.setenv("CONTEXT_CHUNKS", "6")
+async def test_gather_evidence_covers_every_query_within_budget(monkeypatch):
     queries = []
 
     async def fake_retrieve(query, top_k=5, urls=None):
@@ -107,17 +119,18 @@ async def test_gather_evidence_covers_every_theme_within_budget(monkeypatch):
         return [{"text": f"{query} #{i}", "metadata": {"url": "https://a.example"}} for i in range(top_k)]
 
     monkeypatch.setattr(research, "retrieve_context", fake_retrieve)
-    chunks = await gather_evidence("scooters", ["https://a.example"])
+    chunks = await gather_evidence(["a", "b", "c", "d", "e"], ["https://a.example"], budget=6)
     assert len(chunks) == 6
-    # The first passage of every theme is kept before second-best ones
+    # The first passage of every query is kept before second-best ones
     assert {c["text"] for c in chunks[:5]} == {f"{q} #0" for q in queries}
 
 
 class FakeSearch:
     name = "fake"
 
-    def __init__(self, results_by_query=None, fail=False):
+    def __init__(self, results_by_query=None, default=None, fail=False):
         self.results_by_query = results_by_query or {}
+        self.default = default or []
         self.fail = fail
         self.queries = []
 
@@ -125,66 +138,149 @@ class FakeSearch:
         self.queries.append(query)
         if self.fail:
             raise RuntimeError("down")
-        return self.results_by_query.get(query, [])
+        return self.results_by_query.get(query, self.default)
 
 
 def result(url, content=LONG_TEXT):
     return SearchResult(url=url, title=url, snippet="", content=content)
 
 
-async def test_discover_sources_interleaves_and_dedupes(monkeypatch):
+async def test_search_all_interleaves_and_dedupes():
     fake = FakeSearch({
         "scooters": [result("https://a.example/"), result("https://b.example")],
-        "scooters market size and growth forecast CAGR": [result("https://a.example"), result("https://c.example")],
+        "scooter market size": [result("https://a.example"), result("https://c.example")],
     })
-    monkeypatch.setattr(research, "get_search_provider", lambda: fake)
-    urls = [r.url for r in await discover_sources("scooters")]
+    urls = [r.url for r in await search_all(fake, ["scooters", "scooter market size"])]
     assert urls == ["https://a.example/", "https://b.example", "https://c.example"]
-    assert len(fake.queries) == 7
+
+
+def scope(**overrides):
+    values = dict(
+        market_name="Scooter sharing", definition="Shared electric scooters rented by the minute.", geography="Global",
+        adjacent_markets=["Bike sharing"], sizing_queries=["scooter sharing market size"], competition_queries=[],
+        demand_queries=[], trends_queries=[],
+    )
+    return MarketScope(**(values | overrides))
+
+
+class FakeLLM:
+    """Answers each agent by the schema it asks for; a list of answers is used in turn."""
+
+    def __init__(self, **answers):
+        self.answers = {
+            "MarketScope": scope(),
+            "SizingSection": SizingSection(key_figures=[figure(12.5, [1])], data_gaps=["No regional split"], follow_up_queries=[]),
+            "CompetitionSection": CompetitionSection(
+                competitors=[competitor("Lime", [1])], competitive_forces=[], data_gaps=[], follow_up_queries=[]
+            ),
+            "DemandSection": DemandSection(customer_segments=[], growth_drivers=[], data_gaps=[], follow_up_queries=[]),
+            "TrendsSection": TrendsSection(
+                key_trends=[CitedText(text="Cities cap fleets", source_ids=[2])], challenges=[], data_gaps=[], follow_up_queries=[]
+            ),
+            "StrategySection": StrategySection(
+                executive_summary="Growing.", executive_summary_source_ids=[1],
+                whitespace_opportunities=[],
+                recommendations=[CitedText(text="Partner with cities", source_ids=[1]), CitedText(text="Made up", source_ids=[99])],
+            ),
+        } | answers
+        self.calls = []
+
+    async def generate_structured(self, prompt, schema):
+        self.calls.append(schema.__name__)
+        answer = self.answers[schema.__name__]
+        if isinstance(answer, list):
+            answer = answer.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
 
 @pytest.fixture
 def pipeline(monkeypatch):
     """Stubs storage, retrieval and the LLM so the pipeline runs without external services."""
-    stored, captured = [], {}
+    stored, captured = [], {"urls": []}
+    llm = FakeLLM()
 
     async def fake_store(chunks, url, title=""):
         stored.append(url)
 
     async def fake_retrieve(query, top_k=5, urls=None):
-        captured["urls"] = urls
-        return [{"text": "Lime leads.", "metadata": {"url": u}} for u in (urls or ["https://old.example"])]
-
-    async def fake_generate(query, chunks, source_ids):
-        captured["source_ids"] = source_ids
-        return draft(competitors=[competitor("Lime", [1])])
+        captured["urls"].append(urls)
+        text = "The market reached USD 12.5 billion. Lime leads."
+        return [{"text": text, "metadata": {"url": u}} for u in (urls or ["https://old.example"])]
 
     async def fake_scrape(url):
         return LONG_TEXT
 
     monkeypatch.setattr(research, "store_documents", fake_store)
     monkeypatch.setattr(research, "retrieve_context", fake_retrieve)
-    monkeypatch.setattr(research, "generate_research_report", fake_generate)
+    monkeypatch.setattr(research, "get_llm_provider", lambda: llm)
     monkeypatch.setattr(research, "scrape_core_content", fake_scrape)
     monkeypatch.setattr(research, "chunk_text", lambda text: [text])
-    return stored, captured
+    return stored, captured, llm
 
 
-async def test_run_research_cites_web_sources(monkeypatch, pipeline):
-    stored, captured = pipeline
-    fake = FakeSearch({"scooters": [result("https://a.example"), result("https://b.example", content=None)]})
+async def test_agents_research_in_parallel_and_share_numbered_sources(monkeypatch, pipeline):
+    stored, captured, llm = pipeline
+    fake = FakeSearch(
+        {"scooters": [result("https://a.example"), result("https://b.example", content=None)]},
+        default=[result("https://a.example"), result("https://c.example")],
+    )
     monkeypatch.setattr(research, "get_search_provider", lambda: fake)
     events = []
 
-    async def progress(stage, message):
-        events.append(stage)
+    async def progress(stage, message, agent=None, done=False):
+        events.append((stage, agent, done))
 
     report = await run_research("scooters", progress)
-    assert stored == ["https://a.example", "https://b.example"]
-    assert captured["urls"] == ["https://a.example", "https://b.example"]
-    assert captured["source_ids"] == {"https://a.example": 1, "https://b.example": 2}
-    assert [s.url for s in report.sources] == ["https://a.example", "https://b.example"]
-    assert events[0] == "searching" and events[-1] == "writing"
+    # Each page is read once, however many agents found it
+    assert stored == ["https://a.example", "https://b.example", "https://c.example"]
+    assert [s.id for s in report.sources] == [1, 2, 3]
+    assert llm.calls[0] == "MarketScope" and llm.calls[-1] == "StrategySection"
+    assert sorted(llm.calls[1:-1]) == ["CompetitionSection", "DemandSection", "SizingSection", "TrendsSection"]
+    assert "scooter sharing market size" in fake.queries
+    assert report.industry_name == "Scooter sharing"
+    assert report.market_definition.startswith("Shared electric scooters")
+    assert [f.value for f in report.key_figures] == [12.5]
+    assert [c.name for c in report.competitors] == ["Lime"]
+    assert [r.text for r in report.recommendations] == ["Partner with cities"]
+    assert report.removed_statements == 1
+    assert report.data_gaps == ["No regional split"]
+    assert events[0][0] == "scoping" and events[-1][0] == "writing"
+    assert {agent for stage, agent, done in events if done} == {"sizing", "competition", "demand", "trends"}
+
+
+async def test_an_analyst_searches_again_when_its_section_is_missing_essentials(monkeypatch, pipeline):
+    _, _, llm = pipeline
+    llm.answers["SizingSection"] = [
+        SizingSection(key_figures=[], data_gaps=[], follow_up_queries=["scooter sharing market report"]),
+        SizingSection(key_figures=[figure(12.5, [1])], data_gaps=[], follow_up_queries=[]),
+    ]
+    fake = FakeSearch(default=[result("https://a.example"), result("https://b.example")])
+    monkeypatch.setattr(research, "get_search_provider", lambda: fake)
+    report = await run_research("scooters")
+    assert "scooter sharing market report" in fake.queries
+    assert llm.calls.count("SizingSection") == 2
+    assert [f.value for f in report.key_figures] == [12.5]
+
+
+async def test_a_failed_analyst_leaves_a_gap_instead_of_failing_the_report(monkeypatch, pipeline):
+    _, _, llm = pipeline
+    llm.answers["DemandSection"] = RuntimeError("model overloaded")
+    fake = FakeSearch(default=[result("https://a.example"), result("https://b.example")])
+    monkeypatch.setattr(research, "get_search_provider", lambda: fake)
+    report = await run_research("scooters")
+    assert "The customers and demand research could not be completed this time." in report.data_gaps
+    assert [c.name for c in report.competitors] == ["Lime"]
+
+
+async def test_findings_survive_a_failed_strategist(monkeypatch, pipeline):
+    _, _, llm = pipeline
+    llm.answers["StrategySection"] = RuntimeError("model overloaded")
+    monkeypatch.setattr(research, "get_search_provider", lambda: FakeSearch(default=[result("https://a.example"), result("https://b.example")]))
+    report = await run_research("scooters")
+    assert report.executive_summary.startswith("The summary could not be written")
+    assert [f.value for f in report.key_figures] == [12.5]
 
 
 async def test_run_research_needs_enough_sources(monkeypatch, pipeline):
@@ -201,6 +297,7 @@ async def test_run_research_needs_enough_sources(monkeypatch, pipeline):
 
 async def test_run_research_without_search_uses_stored_pages(monkeypatch, pipeline):
     monkeypatch.setattr(research, "get_search_provider", lambda: None)
+    monkeypatch.setenv("RESEARCH_MIN_SOURCES", "1")
     report = await run_research("scooters")
     assert [s.url for s in report.sources] == ["https://old.example"]
 

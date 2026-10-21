@@ -497,6 +497,56 @@ button {
   margin-top: 2px;
 }
 
+.market-definition {
+  max-width: 62ch;
+  margin-top: 6px;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.agents {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.agent {
+  display: grid;
+  grid-template-columns: 20px 11.5em minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.agent .step-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.agent-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.agent-status {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .agent {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .agent-status {
+    grid-column: 2;
+  }
+}
+
 .progress-foot {
   display: flex;
   justify-content: space-between;

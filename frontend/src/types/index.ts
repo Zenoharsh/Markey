@@ -59,11 +59,19 @@ export interface MarketResearchReport {
   sources: Source[];
   removed_statements: number;
   removed_figures: number;
+  // What the scoping agent took the market to be; absent on briefs made before research agents
+  market_definition?: string;
+}
+
+// The latest progress line from one research agent
+export interface AgentStatus {
+  message: string;
+  done: boolean;
 }
 
 export type ResearchEvent =
   | { type: 'job'; id: string }
-  | { type: 'progress'; stage: string; message: string }
+  | { type: 'progress'; stage: string; message: string; agent?: string; done?: boolean }
   | { type: 'report'; id: string; report: MarketResearchReport }
   | { type: 'error'; status: number; detail: string };
 

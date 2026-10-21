@@ -49,21 +49,21 @@ graph TD
 
 ## Research pipeline (`POST /research`, `POST /research/stream`)
 
-`services/research.py` runs one research job:
+`services/research.py` runs each report with a team of agents, the way a consultancy splits an engagement. Their prompts and section schemas live in `services/agents.py`.
 
-1. **Plan:** the topic becomes four searches covering the overall topic, market size, competitors and pricing, and trends.
-2. **Discover:** `services/search.py` runs them through Tavily, falling back to Brave Search if Tavily fails. Results are interleaved and de-duplicated.
-3. **Read:** pages come from the search API's full text when it provides it, otherwise from the Playwright scraper, with a timeout per page. Thin or failed pages are skipped. Up to `RESEARCH_MAX_SOURCES` pages are kept, and fewer than `RESEARCH_MIN_SOURCES` stops the run with a 422.
-4. **Store:** pages are chunked and embedded into ChromaDB with their URL and title. Re-reading a page replaces its old chunks.
-5. **Retrieve:** the 12 passages closest to the topic are pulled, only from this run's sources.
-6. **Write:** the LLM receives numbered sources and must give `source_ids` for every trend, competitor and opportunity.
-7. **Check citations:** IDs that don't match a real source are removed, and any statement left with no source is dropped before the report is returned with its source list.
+1. **Scope:** one web search for the topic, then the scoping agent names the market precisely, defines what it includes, picks the geography, lists adjacent markets, and writes three searches for each workstream (`MarketScope`). The top results are read as the first sources while it works.
+2. **Research in parallel:** four analysts run at the same time, one per workstream: market sizing, competitive landscape, customers and demand, and trends and risks. Each one runs its searches (Tavily, falling back to Brave), reads up to `SOURCES_PER_AGENT` new pages, retrieves the passages for its workstream from every page any agent has read, and writes its section with source ids.
+3. **Fill gaps:** an analyst whose section misses something essential (no market size, fewer than three described competitors, fewer than two customer segments or trends) runs the follow-up searches it proposed and writes its section again, once.
+4. **Verify:** `apply_citations` checks the combined findings against the passages the analysts saw.
+5. **Synthesise:** the strategist reads only the verified findings and writes the executive summary, whitespace opportunities and recommendations, citing the sources behind the findings it used.
 
-Without a search API key, steps 1 to 4 are skipped and reports use pages stored earlier with `/scrape`.
+All agents share one numbered source list (`SourceLibrary`), capped at `REPORT_MAX_SOURCES` pages, so a source has the same number everywhere in the brief. Pages are claimed before reading, so two analysts never read the same page. Fewer than `RESEARCH_MIN_SOURCES` usable pages stops the run with a 422. With a local Ollama model, LLM calls run one at a time; hosted models run the four analysts at once. A failed analyst leaves its section empty and is noted in the data gaps instead of failing the report.
+
+Without a search API key, the searches are skipped and the analysts use pages stored earlier with `/scrape`.
 
 ## What a report contains
 
-`ReportDraft` (models/request_models.py) follows a consultancy brief: executive summary, key figures (market size, forecasts, growth rates, shares), trends, growth drivers, challenges, customer segments, competitors, Porter's five forces, whitespace opportunities, recommendations and data gaps. Retrieval pulls passages for each theme separately (`gather_evidence`), so every section has evidence.
+`ReportDraft` (models/request_models.py) follows a consultancy brief: executive summary, key figures (market size, forecasts, growth rates, shares), trends, growth drivers, challenges, customer segments, competitors, Porter's five forces, whitespace opportunities, recommendations and data gaps. Each analyst retrieves its own passages (`gather_evidence`), so every section has evidence.
 
 `apply_citations` drops any item without a valid source, and drops any number (key figure or market share) that doesn't appear in the text of a passage it cites. The report counts what was removed and shows it in its method note.
 

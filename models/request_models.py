@@ -97,6 +97,57 @@ class ReportDraft(BaseModel):
     data_gaps: list[str] = Field(description="Important questions the sources did not answer")
 
 
+# What each research agent writes. Every agent sees the same numbered sources, so ids mean the same everywhere.
+
+FOLLOW_UP = "Up to 3 web searches that would find what this section still lacks, e.g. the name of a market report; empty when nothing important is missing"
+
+
+class MarketScope(BaseModel):
+    """The scoping agent's definition of the market and the searches each research agent should run."""
+    market_name: str = Field(description="The market the query is about, in a few words")
+    definition: str = Field(description="One or two sentences on what the market includes and excludes")
+    geography: str = Field(description="Where the research should focus, e.g. 'Global' or 'India'")
+    adjacent_markets: list[str] = Field(description="Related or broader markets that may be sized when this one isn't")
+    sizing_queries: list[str] = Field(description="3 web searches for market size, forecasts and growth rates")
+    competition_queries: list[str] = Field(description="3 web searches for the leading companies, their offers, pricing and shares")
+    demand_queries: list[str] = Field(description="3 web searches for customer segments, buying needs and demand drivers")
+    trends_queries: list[str] = Field(description="3 web searches for trends, technology shifts, regulation and risks")
+
+
+class SizingSection(BaseModel):
+    key_figures: list[KeyFigure]
+    data_gaps: list[str]
+    follow_up_queries: list[str] = Field(description=FOLLOW_UP)
+
+
+class CompetitionSection(BaseModel):
+    competitors: list[CompetitorData]
+    competitive_forces: list[ForceAssessment]
+    data_gaps: list[str]
+    follow_up_queries: list[str] = Field(description=FOLLOW_UP)
+
+
+class DemandSection(BaseModel):
+    customer_segments: list[CitedText] = Field(description="Who buys, and what each segment needs")
+    growth_drivers: list[CitedText]
+    data_gaps: list[str]
+    follow_up_queries: list[str] = Field(description=FOLLOW_UP)
+
+
+class TrendsSection(BaseModel):
+    key_trends: list[CitedText]
+    challenges: list[CitedText] = Field(description="Restraints, risks and barriers")
+    data_gaps: list[str]
+    follow_up_queries: list[str] = Field(description=FOLLOW_UP)
+
+
+class StrategySection(BaseModel):
+    executive_summary: str
+    executive_summary_source_ids: list[int]
+    whitespace_opportunities: list[CitedText]
+    recommendations: list[CitedText]
+
+
 class Source(BaseModel):
     id: int
     url: str
@@ -106,6 +157,8 @@ class Source(BaseModel):
 class MarketResearchReport(ReportDraft):
     """The report returned to clients: the draft with unsupported claims removed, plus its sources."""
     sources: list[Source] = []
+    # What the scoping agent took the market to be
+    market_definition: str = ""
     # Counts from the verification step, shown in the report's methodology note
     removed_statements: int = 0
     removed_figures: int = 0

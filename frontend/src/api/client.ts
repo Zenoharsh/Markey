@@ -36,7 +36,7 @@ export const deleteReport = (id: string) =>
 // Runs continue on the server, so this can be called again after a reload or dropped connection.
 export const followResearch = async (
   id: string,
-  onProgress: (stage: string, message: string) => void,
+  onProgress: (stage: string, message: string, agent?: string, done?: boolean) => void,
   signal?: AbortSignal,
 ): Promise<MarketResearchReport> => {
   let response: Response;
@@ -63,7 +63,7 @@ export const followResearch = async (
     for (const raw of events) {
       if (!raw.startsWith('data: ')) continue;
       const event = JSON.parse(raw.slice('data: '.length)) as ResearchEvent;
-      if (event.type === 'progress') onProgress(event.stage, event.message);
+      if (event.type === 'progress') onProgress(event.stage, event.message, event.agent, event.done);
       else if (event.type === 'report') return event.report;
       else if (event.type === 'error') throw new ResearchError(event.detail);
     }

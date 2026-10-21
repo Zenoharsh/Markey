@@ -14,14 +14,17 @@ import {
   listReports,
   startResearch,
 } from './api/client';
-import type { MarketResearchReport, RunSummary } from './types';
+import type { AgentStatus, MarketResearchReport, RunSummary } from './types';
 import { relativeTime } from './lib/format';
 import { normalizeReport } from './lib/report';
 
 type View =
   | { kind: 'home' }
   | { kind: 'loading' }
-  | { kind: 'running'; id: string; topic: string; stage: string | null; message: string | null; startedAt: number }
+  | {
+      kind: 'running'; id: string; topic: string; stage: string | null; message: string | null; startedAt: number;
+      agents: Record<string, AgentStatus>;
+    }
   | { kind: 'report'; id: string; report: MarketResearchReport; createdAt: string; duration: number | null }
   | { kind: 'error'; topic?: string; message: string };
 
@@ -63,12 +66,19 @@ function App() {
         let run = await getReport(id);
         if (run.status === 'running') {
           setView({
-            kind: 'running', id, topic: run.topic, stage: null, message: null,
+            kind: 'running', id, topic: run.topic, stage: null, message: null, agents: {},
             startedAt: new Date(run.created_at).getTime(),
           });
           await followResearch(
             id,
-            (stage, message) => setView(v => (v.kind === 'running' && v.id === id ? { ...v, stage, message } : v)),
+            (stage, message, agent, done) =>
+              setView(v => {
+                if (v.kind !== 'running' || v.id !== id) return v;
+                // Agent lines update that agent's row; other lines are the run's own stage
+                return agent
+                  ? { ...v, stage, agents: { ...v.agents, [agent]: { message, done: Boolean(done) } } }
+                  : { ...v, stage, message };
+              }),
             controller.signal,
           );
           run = await getReport(id);
@@ -216,7 +226,13 @@ function App() {
           )}
 
           {view.kind === 'running' && (
-            <ProgressSteps topic={view.topic} stage={view.stage} message={view.message} startedAt={view.startedAt} />
+            <ProgressSteps
+              topic={view.topic}
+              stage={view.stage}
+              message={view.message}
+              agents={view.agents}
+              startedAt={view.startedAt}
+            />
           )}
 
           {view.kind === 'report' && (

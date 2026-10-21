@@ -3,68 +3,53 @@ import logging
 import re
 import time
 from collections.abc import Awaitable, Callable
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi.concurrency import run_in_threadpool
 
 from config import get_settings
-from models.request_models import CitedText, KeyFigure, MarketResearchReport, ReportDraft, Source
+from models.request_models import (
+    CitedText,
+    KeyFigure,
+    MarketResearchReport,
+    MarketScope,
+    ReportDraft,
+    Source,
+    StrategySection,
+)
+from services.agents import WORKSTREAMS, Workstream, scope_prompt, section_prompt, strategy_prompt
 from services.chunker import chunk_text
-from services.generator import generate_research_report
+from services.llm import get_llm_provider
 from services.scraper import scrape_core_content
-from services.search import SearchError, SearchResult, get_search_provider
+from services.search import FallbackSearch, SearchError, SearchResult, get_search_provider
 from services.vector_db import retrieve_context, store_documents
 
 logger = logging.getLogger(__name__)
 
-# Called with (stage, message) as the research run progresses
-ProgressCallback = Callable[[str, str], Awaitable[None]]
+# Called with (stage, message), plus the agent's key and whether it finished, as the research run progresses
+ProgressCallback = Callable[..., Awaitable[None]]
 
 # Pages whose search result already carries at least this much text aren't scraped again
 MIN_CONTENT_CHARS = 500
+# Data gaps kept in the final brief, across all workstreams
+MAX_DATA_GAPS = 8
 
 
 class InsufficientEvidence(Exception):
     """Too few usable sources were found to write a trustworthy report."""
 
 
-async def _no_progress(stage: str, message: str) -> None:
+async def _no_progress(stage: str, message: str, agent: str | None = None, done: bool = False) -> None:
     pass
 
 
-def plan_queries(topic: str) -> list[str]:
-    """Splits a topic into searches that cover the report's sections."""
-    year = date.today().year
-    return [
-        topic,
-        f"{topic} market size and growth forecast CAGR",
-        f"{topic} market size USD billion",
-        f"{topic} competitors market share and pricing",
-        f"{topic} industry trends {year}",
-        f"{topic} customer segments and demand drivers",
-        f"{topic} challenges risks and regulation",
-    ]
-
-
-def evidence_queries(topic: str) -> list[str]:
-    """One retrieval per report theme, so passages on every section reach the model, not only the most generic."""
-    return [
-        topic,
-        f"{topic} market size revenue growth rate forecast",
-        f"{topic} companies competitors market share pricing",
-        f"{topic} customers demand drivers trends",
-        f"{topic} challenges barriers regulation risks",
-    ]
-
-
-async def gather_evidence(topic: str, urls: list[str] | None) -> list[dict]:
-    """Retrieves passages for each theme and merges them without duplicates, up to the configured budget."""
-    budget = get_settings().context_chunks
-    queries = evidence_queries(topic)
+async def gather_evidence(queries: list[str], urls: list[str] | None, budget: int | None = None) -> list[dict]:
+    """Retrieves passages for each query and merges them without duplicates, up to the budget."""
+    budget = budget or get_settings().context_chunks
     per_query = max(2, -(-budget // len(queries)))
     batches = await asyncio.gather(*(retrieve_context(q, top_k=per_query, urls=urls) for q in queries))
     chunks, seen = [], set()
-    # Round-robin so each theme keeps its best passages if the budget cuts the list
+    # Round-robin so each query keeps its best passages if the budget cuts the list
     for rank in range(per_query):
         for batch in batches:
             if rank >= len(batch):
@@ -76,27 +61,17 @@ async def gather_evidence(topic: str, urls: list[str] | None) -> list[dict]:
     return chunks[:budget]
 
 
-async def discover_sources(topic: str) -> list[SearchResult]:
-    settings = get_settings()
-    provider = get_search_provider()
-    queries = plan_queries(topic)
+async def search_all(search: FallbackSearch, queries: list[str]) -> list[SearchResult]:
+    """Runs the searches together and interleaves their results, best first, without repeated pages."""
     batches = await asyncio.gather(
-        *(provider.search(q, settings.research_max_sources) for q in queries), return_exceptions=True
+        *(search.search(q, get_settings().sources_per_agent) for q in queries), return_exceptions=True
     )
-
+    lists = [b for b in batches if not isinstance(b, Exception)]
+    if not lists:
+        raise SearchError(f"Every search failed: {batches[0]}")
     seen: set[str] = set()
     results: list[SearchResult] = []
-    errors = []
-    # Interleave the searches so each one contributes its best results first
-    lists = []
-    for batch in batches:
-        if isinstance(batch, Exception):
-            errors.append(batch)
-        else:
-            lists.append(batch)
-    if not lists:
-        raise SearchError(f"Every search failed: {errors[0]}")
-    for rank in range(max(len(b) for b in lists)):
+    for rank in range(max((len(b) for b in lists), default=0)):
         for batch in lists:
             if rank < len(batch) and batch[rank].url.rstrip("/") not in seen:
                 seen.add(batch[rank].url.rstrip("/"))
@@ -116,56 +91,60 @@ async def fetch_page_text(result: SearchResult) -> str | None:
         return None
 
 
-async def collect_sources(topic: str, progress: ProgressCallback) -> list[Source]:
-    """Searches the web for the topic, reads the best pages and stores them. Returns the sources used."""
-    settings = get_settings()
-    await progress("searching", f"Searching the web for {topic!r}")
-    candidates = await discover_sources(topic)
-    await progress("reading", f"Found {len(candidates)} candidate pages, reading the best ones")
+class SourceLibrary:
+    """Every page the agents have read, numbered in the order it was added. All agents cite from it."""
 
-    sources: list[Source] = []
-    semaphore = asyncio.Semaphore(3)
+    def __init__(self, limit: int):
+        self.sources: list[Source] = []
+        self.limit = limit
+        self._claimed: set[str] = set()
+        self._reading = asyncio.Semaphore(3)
 
-    async def read(result: SearchResult) -> tuple[SearchResult, str | None]:
-        async with semaphore:
-            return result, await fetch_page_text(result)
+    @property
+    def urls(self) -> list[str]:
+        return [s.url for s in self.sources]
 
-    # Read more candidates than needed, since some pages fail or are too thin
-    pending = candidates[: settings.research_max_sources * 2]
-    for result, text in await asyncio.gather(*(read(r) for r in pending)):
-        if len(sources) >= settings.research_max_sources:
-            break
-        if not text or len(text) < MIN_CONTENT_CHARS:
-            continue
-        chunks = await run_in_threadpool(chunk_text, text[: settings.max_page_chars])
-        await store_documents(chunks, result.url, result.title)
-        sources.append(
-            Source(
-                id=len(sources) + 1,
-                url=result.url,
-                title=result.title,
-                retrieved_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            )
-        )
-        await progress("reading", f"Read {len(sources)} of up to {settings.research_max_sources} sources")
+    def ids(self) -> dict[str, int]:
+        return {s.url: s.id for s in self.sources}
 
-    if len(sources) < settings.research_min_sources:
-        raise InsufficientEvidence(
-            f"Only {len(sources)} usable sources were found for this topic; at least "
-            f"{settings.research_min_sources} are needed. Try a broader or differently worded topic."
-        )
-    return sources
+    def _add(self, url: str, title: str, retrieved_at: str) -> None:
+        self.sources.append(Source(id=len(self.sources) + 1, url=url, title=title, retrieved_at=retrieved_at))
 
+    async def read(self, results: list[SearchResult], max_new: int) -> int:
+        """Reads up to `max_new` pages no agent has claimed yet and stores them. Returns how many were added."""
+        # Claim pages before reading, so agents running in parallel never read the same page twice
+        pending = []
+        for result in results:
+            key = result.url.rstrip("/")
+            if key not in self._claimed and len(pending) < max_new * 2:
+                self._claimed.add(key)
+                pending.append(result)
 
-def _sources_from_chunks(chunks: list[dict]) -> list[Source]:
-    """Builds the source list for reports made only from previously scraped pages."""
-    sources: list[Source] = []
-    for chunk in chunks:
-        meta = chunk.get("metadata", {})
-        url = meta.get("url")
-        if url and all(s.url != url for s in sources):
-            sources.append(Source(id=len(sources) + 1, url=url, title=meta.get("title") or url, retrieved_at=""))
-    return sources
+        async def fetch(result: SearchResult) -> tuple[SearchResult, str | None]:
+            async with self._reading:
+                return result, await fetch_page_text(result)
+
+        added = 0
+        for result, text in await asyncio.gather(*(fetch(r) for r in pending)):
+            if added >= max_new or len(self.sources) >= self.limit:
+                break
+            if not text or len(text) < MIN_CONTENT_CHARS:
+                continue
+            chunks = await run_in_threadpool(chunk_text, text[: get_settings().max_page_chars])
+            await store_documents(chunks, result.url, result.title)
+            self._add(result.url, result.title, datetime.now(timezone.utc).isoformat(timespec="seconds"))
+            added += 1
+        return added
+
+    def add_stored(self, chunks: list[dict]) -> None:
+        """Registers previously scraped pages, for research without a search API."""
+        known = set(self.urls)
+        for chunk in chunks:
+            meta = chunk.get("metadata", {})
+            url = meta.get("url")
+            if url and url not in known:
+                known.add(url)
+                self._add(url, meta.get("title") or url, "")
 
 
 def _number_forms(value: float) -> set[str]:
@@ -262,42 +241,161 @@ def apply_citations(draft: ReportDraft, sources: list[Source], evidence: dict[in
     )
 
 
+
+
+async def run_workstream(
+    workstream: Workstream,
+    scope: MarketScope,
+    library: SourceLibrary,
+    search: FallbackSearch | None,
+    progress: ProgressCallback,
+    llm_slots: asyncio.Semaphore,
+):
+    """One analyst: searches for its workstream, reads new pages, writes its section, and searches once more for gaps."""
+    settings = get_settings()
+
+    async def say(message: str) -> None:
+        await progress("researching", message, workstream.key)
+
+    queries = [q for q in getattr(scope, workstream.queries_field) if q.strip()][:3]
+    queries = queries or workstream.default_queries(scope.market_name)
+    section, chunks = None, []
+    for round_ in range(2):
+        if search:
+            await say(f"Searching for {queries[0]!r}" + (f" and {len(queries) - 1} more" if len(queries) > 1 else ""))
+            try:
+                results = await search_all(search, queries)
+            except SearchError as e:
+                logger.warning(f"{workstream.key} searches failed: {e}")
+                results = []
+            added = await library.read(results, settings.sources_per_agent)
+            await say(f"Read {added} new source{'' if added == 1 else 's'}")
+            if not library.sources:
+                break
+        evidence_queries = workstream.evidence_queries(scope.market_name) + queries
+        chunks = await gather_evidence(evidence_queries, library.urls if search else None)
+        if not search:
+            library.add_stored(chunks)
+        if not chunks:
+            break
+        await say(f"Analysing {len(chunks)} passages")
+        async with llm_slots:
+            section = await get_llm_provider().generate_structured(
+                section_prompt(workstream, scope, chunks, library.ids()), workstream.schema
+            )
+        follow_ups = [q for q in section.follow_up_queries if q.strip()][:3]
+        if round_ or not search or not follow_ups or not workstream.incomplete(section):
+            break
+        queries = follow_ups
+        await say("Searching again for what's missing")
+    await progress("researching", "Finished" if section else "Found nothing to analyse", workstream.key, True)
+    return section, chunks
+
+
 async def run_research(topic: str, progress: ProgressCallback | None = None) -> MarketResearchReport:
     """
-    Produces a cited report for any topic: finds sources on the web when a search API is configured,
-    otherwise uses pages previously stored with /scrape.
+    Produces a cited report for any topic with a team of agents: a scoping agent defines the market, four analysts
+    research their workstreams in parallel, and a strategist writes the summary and recommendations.
+    Finds sources on the web when a search API is configured, otherwise uses pages previously stored with /scrape.
     """
     progress = progress or _no_progress
+    settings = get_settings()
     started = time.perf_counter()
+    search = get_search_provider()
+    llm = get_llm_provider()
+    library = SourceLibrary(settings.report_max_sources)
+    # A local model answers one request at a time, so queueing more only causes timeouts
+    llm_slots = asyncio.Semaphore(1 if settings.llm_provider == "ollama" else len(WORKSTREAMS))
 
-    if get_search_provider() is not None:
-        sources = await collect_sources(topic, progress)
-        logger.info(f"Collected {len(sources)} sources in {time.perf_counter() - started:.1f}s")
-        await progress("analyzing", f"Picking the most relevant passages from {len(sources)} sources")
-        chunks = await gather_evidence(topic, [s.url for s in sources])
-        if not chunks:
-            raise InsufficientEvidence(
-                "The sources were found but could not be searched. Check that the embedding service (Ollama) is running."
-            )
-    else:
-        chunks = await gather_evidence(topic, None)
-        if not chunks:
+    initial: list[SearchResult] = []
+    if search:
+        await progress("scoping", f"Searching the web for {topic!r}")
+        initial = await search_all(search, [topic])
+    await progress("scoping", "Naming the market and planning each analyst's searches")
+    scope, _ = await asyncio.gather(
+        llm.generate_structured(scope_prompt(topic, initial), MarketScope),
+        library.read(initial, settings.sources_per_agent),
+    )
+    await progress("scoping", f"{scope.market_name}: {scope.definition}")
+
+    await progress("researching", "Four analysts are researching in parallel")
+    outcomes = await asyncio.gather(
+        *(run_workstream(w, scope, library, search, progress, llm_slots) for w in WORKSTREAMS),
+        return_exceptions=True,
+    )
+    failures = [o for o in outcomes if isinstance(o, Exception)]
+    if len(failures) == len(outcomes):
+        raise failures[0]
+    if len(library.sources) < settings.research_min_sources:
+        if not search:
             raise InsufficientEvidence(
                 "No stored sources match this topic. Set TAVILY_API_KEY or BRAVE_API_KEY to research from the web."
             )
-        sources = _sources_from_chunks(chunks)
+        raise InsufficientEvidence(
+            f"Only {len(library.sources)} usable sources were found for this topic; at least "
+            f"{settings.research_min_sources} are needed. Try a broader or differently worded topic."
+        )
 
-    await progress("writing", "Writing the report")
-    writing_started = time.perf_counter()
-    draft = await generate_research_report(topic, chunks, {s.url: s.id for s in sources})
-    logger.info(
-        f"Wrote the report in {time.perf_counter() - writing_started:.1f}s "
-        f"({time.perf_counter() - started:.1f}s total)"
+    sections, gaps, evidence = {}, [], {}
+    ids = library.ids()
+    for workstream, outcome in zip(WORKSTREAMS, outcomes):
+        if isinstance(outcome, Exception):
+            logger.error(f"The {workstream.key} analyst failed: {outcome}")
+            gaps.append(f"The {workstream.title.lower()} research could not be completed this time.")
+            continue
+        section, chunks = outcome
+        if section is None:
+            continue
+        sections[workstream.key] = section
+        gaps += section.data_gaps
+        for chunk in chunks:
+            source_id = ids.get(chunk.get("metadata", {}).get("url"))
+            if source_id is not None:
+                evidence[source_id] = evidence.get(source_id, "") + "\n" + chunk["text"]
+
+    def part(key: str, field: str) -> list:
+        return getattr(sections[key], field) if key in sections else []
+
+    findings = apply_citations(
+        ReportDraft(
+            industry_name=scope.market_name,
+            executive_summary="",
+            executive_summary_source_ids=[],
+            key_figures=part("sizing", "key_figures"),
+            key_trends=part("trends", "key_trends"),
+            growth_drivers=part("demand", "growth_drivers"),
+            challenges=part("trends", "challenges"),
+            customer_segments=part("demand", "customer_segments"),
+            competitors=part("competition", "competitors"),
+            competitive_forces=part("competition", "competitive_forces"),
+            whitespace_opportunities=[],
+            recommendations=[],
+            data_gaps=list(dict.fromkeys(g.strip() for g in gaps if g.strip()))[:MAX_DATA_GAPS],
+        ),
+        library.sources,
+        evidence,
     )
-    ids_by_url = {s.url: s.id for s in sources}
-    evidence: dict[int, str] = {}
-    for chunk in chunks:
-        source_id = ids_by_url.get(chunk.get("metadata", {}).get("url"))
-        if source_id is not None:
-            evidence[source_id] = evidence.get(source_id, "") + "\n" + chunk["text"]
-    return apply_citations(draft, sources, evidence)
+
+    await progress("writing", "Writing the summary and recommendations from the verified findings")
+    try:
+        async with llm_slots:
+            strategy = await llm.generate_structured(strategy_prompt(scope, findings), StrategySection)
+    except Exception as e:
+        # The analysts' verified findings are still worth delivering without the strategist's summary
+        logger.error(f"The strategist failed: {e}")
+        strategy = StrategySection(
+            executive_summary="The summary could not be written this time; the findings below are complete and verified.",
+            executive_summary_source_ids=[], whitespace_opportunities=[], recommendations=[],
+        )
+    report = apply_citations(
+        ReportDraft(**findings.model_dump(include=set(ReportDraft.model_fields)) | strategy.model_dump()),
+        library.sources,
+    )
+    logger.info(f"Researched {scope.market_name!r} from {len(library.sources)} sources in {time.perf_counter() - started:.1f}s")
+    return report.model_copy(
+        update={
+            "market_definition": scope.definition,
+            "removed_statements": findings.removed_statements + report.removed_statements,
+            "removed_figures": findings.removed_figures + report.removed_figures,
+        }
+    )

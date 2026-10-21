@@ -76,6 +76,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, createdAt, durat
         <div>
           <div className="eyebrow">Market research brief</div>
           <h1>{report.industry_name}</h1>
+          {report.market_definition && <p className="market-definition">{report.market_definition}</p>}
           <div className="meta">{meta.join(' · ')}</div>
         </div>
         <div className="header-actions">
@@ -164,10 +165,13 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, createdAt, durat
             </ul>
           )}
           <p className="method">
-            Markey read {s.length} web sources{createdAt ? ` on ${formatDate(createdAt)}` : ''} and links every statement to
-            the ones it came from.
+            {report.market_definition
+              ? `Four research agents covered sizing, competition, customers and trends, reading ${s.length} web sources`
+              : `Markey read ${s.length} web sources`}
+            {createdAt ? ` on ${formatDate(createdAt)}` : ''}, and every statement links to the ones it came from.
+            {report.market_definition && ' A strategist wrote the summary and recommendations from their verified findings.'}
             {report.removed_statements + report.removed_figures > 0 &&
-              ` It removed ${report.removed_statements} statement${report.removed_statements === 1 ? '' : 's'} without a source and ${report.removed_figures} number${report.removed_figures === 1 ? '' : 's'} that didn't appear in the cited text.`}{' '}
+              ` Markey removed ${report.removed_statements} statement${report.removed_statements === 1 ? '' : 's'} without a source and ${report.removed_figures} number${report.removed_figures === 1 ? '' : 's'} that didn't appear in the cited text.`}{' '}
             Treat it as a starting point and check key numbers before relying on them.
           </p>
         </Panel>
